@@ -229,8 +229,28 @@ Run `npm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node 
 npm install
 npm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
 npm run test:objection-versions # runtime + types against several objection 3.x releases
+npm run test:mutations          # Stryker mutation testing of lib/ (must stay at 100%)
+npm run test:mutations:types    # curated mutants of the type declarations (all must be caught)
 npm run format
 ```
+
+How the tests are layered:
+
+- **Example tests** (`tests/runtime/*.test.js`) cover each feature, its errors, and interop with
+  class-based models, on sqlite.
+- **Property tests** (`tests/runtime/properties.test.js`, [fast-check](https://fast-check.dev))
+  check rules against independent oracles. Validation must agree with an equivalent zod object
+  schema for any input, never mutate its input, be idempotent, and leave patches alone. Rows must
+  round-trip through the database. Relation merging must match a model of the rules for random
+  registries. Guard tests keep the generated inputs balanced between valid and invalid.
+  `FC_NUM_RUNS` scales the number of runs.
+- **Type tests** (`tests/types`) assert exact inferred types and expected errors, and pin the
+  exact messages of relation errors via the `RelationErrors` type.
+- **Mutation tests:**
+  - Stryker mutates `lib/`; every mutant must be killed. The few behaviour-equivalent mutants
+    (performance-only differences) are disabled in place, with the reason next to the code.
+  - `scripts/mutate-types.js` does the same for the type declarations, which Stryker can't mutate.
+  - Mutation testing runs in CI on pull requests (`.github/workflows/mutation.yml`).
 
 If `sqlite3` fails to build (old `node-gyp` vs. Python ≥ 3.12), run
 `npm install --ignore-scripts`, then `cd node_modules/sqlite3 && npx node-gyp@latest rebuild`.

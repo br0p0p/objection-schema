@@ -50,12 +50,18 @@
     "bench": "node bench/compare.js",
     "bench:validation": "node bench/zod-cost.js",
     "bench:typecheck": "node bench/tooling/typecheck-scale.js",
-    "bench:completions": "node bench/tooling/completions.js"
+    "bench:completions": "node bench/tooling/completions.js",
+    "test:mutations": "stryker run",
+    "test:mutations:types": "node scripts/mutate-types.js",
+    "test:properties": "mocha --timeout 60000 tests/runtime/properties.test.js"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/mocha-runner": "^10.0.0",
     "@types/node": "^22.20.5",
     "expect.js": "^0.3.1",
+    "fast-check": "^4.10.2",
     "knex": "^3.3.0",
     "mocha": "^11.8.0",
     "objection": "^3.9.1",

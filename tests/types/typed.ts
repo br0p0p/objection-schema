@@ -17,6 +17,7 @@ import {
   Patch,
   Result,
   RowWithGraph,
+  RelationErrors,
 } from 'objection-schema';
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
@@ -185,6 +186,11 @@ async function queries() {
   db.Person.query().where('age', '>', '18');
   // @ts-expect-error unknown column
   db.Person.query().where('agee', 18);
+  // Value-less calls, so only the column reference itself can be the error.
+  // @ts-expect-error unknown column, table-qualified
+  db.Person.query().orderBy('persons.agee');
+  // @ts-expect-error another table's column without a join
+  db.Person.query().whereNull('animals.name');
   // @ts-expect-error unknown column in object form
   db.Person.query().where({ agee: 18 });
 
@@ -497,6 +503,59 @@ const strangerRelations = relations(Vet, (r) => ({
 // @ts-expect-error relations() declared for a model that isn't part of this registry
 defineModels({ Owner, Pet: Raw }, [strangerRelations]);
 
+// Exact messages: each case above must fail for its stated reason, and only that one.
+type ErrorsOf<M extends Record<string, any>, D extends readonly unknown[] = []> = RelationErrors<
+  M,
+  D
+>;
+expectType<
+  Equal<
+    ErrorsOf<{ Owner: typeof Owner; Pet: typeof Pet; Vet: typeof Vet }, [typeof ownerPetsRelation]>,
+    'relation "Owner.pets" is defined more than once'
+  >
+>();
+expectType<
+  Equal<
+    ErrorsOf<{ Owner: typeof Owner; Pet: typeof Pet }>,
+    'Pet.vetId.references(): unknown model "Vet"'
+  >
+>();
+expectType<
+  Equal<
+    ErrorsOf<{ Owner: typeof Owner; BadColumn: typeof BadColumn }>,
+    'BadColumn.ownerId.references(): unknown column "Owner.uuid"'
+  >
+>();
+expectType<
+  Equal<
+    ErrorsOf<{ Owner: typeof Owner; NoName: typeof NoName }>,
+    'NoName.owner.references(): needs an `as` relation name'
+  >
+>();
+expectType<
+  Equal<
+    ErrorsOf<{ Movie: typeof Movie; InverseOnClassic: typeof InverseOnClassic }>,
+    'InverseOnClassic.movieId.references(): "Movie" is a classic model class and can\'t get the inverse relation "links"'
+  >
+>();
+expectType<
+  Equal<
+    ErrorsOf<{ Owner: typeof Owner; Pet: typeof Raw }, [typeof strangerRelations]>,
+    | "relations() declared for a model that isn't part of this registry"
+    | 'relation "x" points to a model that isn\'t part of this registry'
+  >
+>();
+// And a valid registry has none.
+expectType<
+  Equal<
+    ErrorsOf<
+      { Owner: typeof Owner; Pet: typeof Pet; Vet: typeof Vet; Movie: typeof Movie },
+      [typeof vetRelations]
+    >,
+    never
+  >
+>();
+
 // ----- defineModelNames: reference targets checked on the column itself -----
 
 const { column: libraryColumn } = defineModelNames('Author', 'Book');
@@ -529,3 +588,18 @@ async function modelNames() {
 
 // @ts-expect-error Book.authorId.references(): unknown model "Author" (declared, but not registered)
 defineModels({ Book });
+
+// ----- references(): the forward name strips `_id` as well as `Id` -----
+
+const Snake = defineModel({
+  table: 'snakes',
+  columns: { id: z.number(), owner_id: column(z.number()).references('Owner', 'id') },
+});
+const snakeDb = defineModels({ Owner, Snake });
+
+async function snakeCaseReference() {
+  const [snake] = await snakeDb.Snake.query().withGraphFetched('owner');
+  expectType<Equal<typeof snake.owner, Row<typeof snakeDb.Owner> | null>>();
+  // @ts-expect-error the relation is `owner`, not `owner_id`
+  snakeDb.Snake.query().withGraphFetched('owner_id');
+}

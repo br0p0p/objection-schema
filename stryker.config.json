@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "mocha",
+  "mochaOptions": {
+    "spec": ["tests/runtime/**/*.test.js", "tests/runtime/**/*.test.mjs"]
+  },
+  "mutate": ["lib/**/*.js"],
+  "coverageAnalysis": "perTest",
+  "timeoutMS": 60000,
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 95,
+    "break": 100
+  },
+  "tempDirName": ".stryker-tmp"
+}

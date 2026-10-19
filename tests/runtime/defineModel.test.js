@@ -147,6 +147,8 @@ describe('objection-schema', () => {
         expect(err.statusCode).to.equal(400);
         expect(Object.keys(err.data).sort()).to.eql(['age', 'firstName', 'lastName']);
         expect(err.data.lastName[0].keyword).to.equal('required');
+        expect(err.data.lastName[0].message).to.equal('is required');
+        expect(err.data.lastName[0].params).to.eql({ missingProperty: 'lastName' });
         expect(err.data.firstName[0].keyword).to.equal('zod');
       }
     });
@@ -202,11 +204,14 @@ describe('objection-schema', () => {
         columns: { id: z.number(), name: z.string().refine(async () => true) },
       });
 
-      expect(() => Async.validate({ id: 1, name: 'a' })).to.throwError(/validates asynchronously/);
+      expect(() => Async.validate({ id: 1, name: 'a' })).to.throwError(
+        /"name" \(zod\) validates asynchronously\. Only synchronous Standard Schema validation is supported\./,
+      );
     });
 
     it('`unchecked` columns carry only a type', () => {
       const Raw = defineModel({ table: 'raw', columns: { id: unchecked(), payload: unchecked() } });
+      expect(unchecked()['~standard'].vendor).to.equal('objection');
       expect(Raw.validate({ payload: { anything: true } })).to.eql({ payload: { anything: true } });
     });
   });
@@ -415,6 +420,19 @@ describe('objection-schema', () => {
       expect(ownerRelations.parent).to.be.a(Model.BelongsToOneRelation);
       expect(ownerRelations.favoritePet).to.be.a(Model.HasOneRelation);
       expect(Pet.modelClass.getRelations().human).to.be.a(Model.BelongsToOneRelation);
+
+      // An inverse given as an object without `kind` is a hasMany. (A fresh owner: objection
+      // caches relations on first use, so a definition belongs to one registry.)
+      const Clinic = defineModel({ table: 'clinics', columns: { id: z.number() } });
+      const Vet = defineModel({
+        table: 'vets',
+        columns: {
+          id: z.number(),
+          clinicId: column(z.number()).references('Clinic', 'id', { inverse: { name: 'vets' } }),
+        },
+      });
+      defineModels({ Clinic, Vet });
+      expect(Clinic.modelClass.getRelations().vets).to.be.a(Model.HasManyRelation);
     });
 
     it('relations() declarations can target classic models', async () => {
@@ -497,7 +515,7 @@ describe('objection-schema', () => {
             defineModels({ Owner, Pet }, [ownerRelations], {
               Owner: (r) => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }),
             }),
-          /relation "Owner.parent" is defined more than once/,
+          /relation "Owner.parent" is defined more than once: relations\(Owner\) and defineModels relations for Owner/,
         );
       });
 

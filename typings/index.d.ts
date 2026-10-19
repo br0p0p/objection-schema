@@ -1286,8 +1286,13 @@ type DuplicateErrors<
     : `relation "${K}.${N}" is defined more than once`
   : never;
 
-type ColumnNameErrors<M, U extends string> = U extends `${infer K}|${infer N}|${string}`
-  ? N extends StrKeys<ColumnsOfModel<M[K & keyof M]>>
+type ColumnNameErrors<
+  M,
+  U extends string,
+> = U extends `${infer K extends StrKeys<M>}|${infer N}|${string}`
+  ? // Only models in the registry: for an unknown one (already reported by ReferenceErrors)
+    // the lookup would yield every string as a "column".
+    N extends StrKeys<ColumnsOfModel<M[K]>>
     ? `relation "${K}.${N}" has the same name as a column`
     : never
   : never;
@@ -1334,14 +1339,27 @@ type NameErrors<M, Rels, D extends readonly unknown[]> =
     ? DuplicateErrors<U> | ColumnNameErrors<M, U>
     : never;
 
-type CheckRelations<M, Rels, D extends readonly unknown[]> =
+/**
+ * The errors `defineModels(models, declarations, relations)` reports for a registry, as a
+ * union of messages (`never` when it's valid). Mainly useful for testing.
+ */
+export type RelationErrors<
+  M extends ModelsInput,
+  D extends readonly unknown[] = [],
+  Rels = {},
+> = RelationErrorsOf<M, D, Rels>;
+
+type RelationErrorsOf<M, D extends readonly unknown[], Rels> =
   | ReferenceErrors<M>
   | DeclarationErrors<M, D>
-  | NameErrors<M, Rels, D> extends infer E
-  ? [E] extends [never]
-    ? unknown
-    : { '~error': E }
-  : never;
+  | NameErrors<M, Rels, D>;
+
+type CheckRelations<M, Rels, D extends readonly unknown[]> =
+  RelationErrorsOf<M, D, Rels> extends infer E
+    ? [E] extends [never]
+      ? unknown
+      : { '~error': E }
+    : never;
 
 type RelationsOfModel<M, Rels, D extends readonly unknown[], K> = (K extends keyof Rels
   ? DescriptorsOf<Rels[K]>
