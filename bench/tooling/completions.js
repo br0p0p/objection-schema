@@ -1,9 +1,9 @@
 'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
 // Asks the TypeScript language service (what editors use) for completions at
 // marked positions in a snippet, to verify autocompletion of the typed API.
 const ts = require('typescript');
-const path = require('path');
-const fs = require('fs');
 
 const root = path.resolve(__dirname, '../..');
 const file = path.join(root, 'tests/types/_completions.ts');
@@ -20,26 +20,26 @@ const db = defineModels({ Person, Animal }, {
 `;
 
 const cases = {
-  "where('|')": `db.Person.query().where('|')`,
-  "withGraphFetched('|')": `db.Person.query().withGraphFetched('|')`,
+  'where(\'|\')': `db.Person.query().where('|')`,
+  'withGraphFetched(\'|\')': `db.Person.query().withGraphFetched('|')`,
   'withGraphFetched({ | })': `db.Person.query().withGraphFetched({ | })`,
-  "joinRelated('pets').where('pets.|')": `db.Person.query().joinRelated('pets').where('pets.|')`,
-  "relation target r.hasMany('|')": `defineModels({ Person, Animal }, { Person: (r) => ({ x: r.hasMany('|', { from: 'id', to: 'id' }) }) })`,
+  'joinRelated(\'pets\').where(\'pets.|\')': `db.Person.query().joinRelated('pets').where('pets.|')`,
+  'relation target r.hasMany(\'|\')': `defineModels({ Person, Animal }, { Person: (r) => ({ x: r.hasMany('|', { from: 'id', to: 'id' }) }) })`,
   'insert({ | })': `db.Person.query().insert({ | })`,
-  "relations(): r.hasMany(Animal, { to: '|' })": `relations(Person, (r) => ({ x: r.hasMany(Animal, { from: 'id', to: '|' }) }))`,
-  "references(): .references('|')": `column(z.number()).references('|', 'id')`,
-  "defineModelNames column .references('|')": `defineModelNames('Person', 'Animal').column(z.number()).references('|', 'id')`,
+  'relations(): r.hasMany(Animal, { to: \'|\' })': `relations(Person, (r) => ({ x: r.hasMany(Animal, { from: 'id', to: '|' }) }))`,
+  'references(): .references(\'|\')': `column(z.number()).references('|', 'id')`,
+  'defineModelNames column .references(\'|\')': `defineModelNames('Person', 'Animal').column(z.number()).references('|', 'id')`,
 };
 
 for (const [label, snippet] of Object.entries(cases)) {
-  const text = header + snippet.replace('|', '') + ';\n';
+  const text = `${header + snippet.replace('|', '')};\n`;
   const pos = header.length + snippet.indexOf('|');
   fs.writeFileSync(file, text);
 
   const host = {
     getScriptFileNames: () => [file],
     getScriptVersion: () => '1',
-    getScriptSnapshot: (f) =>
+    getScriptSnapshot: f =>
       fs.existsSync(f) ? ts.ScriptSnapshot.fromString(fs.readFileSync(f, 'utf8')) : undefined,
     getCurrentDirectory: () => root,
     getCompilationSettings: () => ({
@@ -57,8 +57,8 @@ for (const [label, snippet] of Object.entries(cases)) {
   const service = ts.createLanguageService(host);
   const completions = service.getCompletionsAtPosition(file, pos, {});
   const names = (completions ? completions.entries : [])
-    .map((e) => e.name)
-    .filter((n) => !/^[A-Z_]/.test(n) || n === 'Animal' || n === 'Person');
+    .map(e => e.name)
+    .filter(n => !/^[A-Z_]/.test(n) || n === 'Animal' || n === 'Person');
   console.log(`${label.padEnd(40)} → ${names.slice(0, 20).join(', ')}`);
 }
 fs.unlinkSync(file);

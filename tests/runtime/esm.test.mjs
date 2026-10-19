@@ -3,10 +3,10 @@
 import { createRequire } from 'node:module';
 import expect from 'expect.js';
 import Knex from 'knex';
-import { z } from 'zod';
 import { Model } from 'objection';
 import * as esm from 'objection-schema';
-import { defineModel, defineModels, column } from 'objection-schema';
+import { column, defineModel, defineModels } from 'objection-schema';
+import { z } from 'zod';
 
 const require = createRequire(import.meta.url);
 const cjs = require('objection-schema');
@@ -43,7 +43,8 @@ describe('ES module entry point', () => {
       expect(item.name).to.equal('ok');
       expect(item).to.be.a(Model);
       expect(await db.Item.query(knex).resultSize()).to.equal(1);
-    } finally {
+    }
+    finally {
       await knex.destroy();
     }
   });

@@ -1,13 +1,15 @@
 {
   "compilerOptions": {
-    "strict": true,
-    "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "../../node_modules/.cache/tsc/nodenext.tsbuildinfo",
     "target": "es2022",
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "types": ["node"]
+    "skipLibCheck": true
   },
   "files": ["typed.ts", "esm.mts", "cjs.cts"]
 }

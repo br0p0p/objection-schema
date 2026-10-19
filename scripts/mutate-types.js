@@ -1,15 +1,16 @@
 'use strict';
+const { execSync } = require('node:child_process');
 // Mutation testing for the type declarations, which Stryker can't mutate. Each mutant
 // breaks one promise of the types; the type tests must fail for every one of them.
 // A mutant whose pattern no longer matches the source is an error, not a skip, so the
-// list can't silently rot. Run: npm run test:mutations:types
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+// list can't silently rot. Run: pnpm run test:mutations:types
+const fs = require('node:fs');
+const path = require('node:path');
+const process = require('node:process');
 
 const root = path.resolve(__dirname, '..');
-const TYPES =
-  'npx tsc -p tests/types/tsconfig.json && npx tsc -p tests/types/tsconfig.nodenext.json';
+const TYPES
+  = 'pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json';
 
 const D = 'typings/index.d.ts';
 const mutants = [
@@ -27,8 +28,8 @@ const mutants = [
   ],
   [
     D,
-    `type ColumnValue<S extends QueryState, P> =`,
-    `type ColumnValue<S extends QueryState, P> = any;\ntype ColumnValueUnused<S extends QueryState, P> =`,
+    `type ColumnValue<S extends QueryState, P>\n  =`,
+    `type ColumnValue<S extends QueryState, P> = any;\ntype ColumnValueUnused<S extends QueryState, P>\n  =`,
     'where() values are untyped',
   ],
   [
@@ -87,7 +88,7 @@ const mutants = [
     `  [K in keyof C]-?: ColIn<C[K]> | ValueExpression;\n}>;`,
     'Patch requires every column',
   ],
-  [D, `        ExtraOfRelation<R, K, Rel> &\n`, ``, 'graph results drop join-table extras'],
+  [D, `      & ExtraOfRelation<R, K, Rel>\n`, ``, 'graph results drop join-table extras'],
   [
     D,
     `(R['column'] extends ColumnsOfInput<M[R['target']]>`,
@@ -96,7 +97,7 @@ const mutants = [
   ],
   [
     D,
-    "`${EntryOf<R, K>['table']}.${keyof RowOf<R, K> & string}`;",
+    '`${EntryOf<R, K>[\'table\']}.${keyof RowOf<R, K> & string}`;',
     '`${string}.${string}`;',
     'table-qualified columns are unchecked',
   ],
@@ -131,7 +132,8 @@ function passes() {
   try {
     execSync(TYPES, { cwd: root, stdio: 'pipe' });
     return true;
-  } catch {
+  }
+  catch {
     return false;
   }
 }
@@ -158,17 +160,19 @@ for (const [file, find, replace, description] of mutants) {
   let survived;
   try {
     survived = passes();
-  } finally {
+  }
+  finally {
     fs.writeFileSync(filePath, original);
   }
 
   console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
-  if (survived) problems.push(`survived: ${description}`);
+  if (survived)
+    problems.push(`survived: ${description}`);
   else caught += 1;
 }
 
 console.log(`\n${caught}/${mutants.length} type mutants caught`);
 if (problems.length) {
-  console.log(problems.map((it) => `- ${it}`).join('\n'));
+  console.log(problems.map(it => `- ${it}`).join('\n'));
   process.exitCode = 1;
 }

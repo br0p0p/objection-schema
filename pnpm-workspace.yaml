@@ -1,0 +1,15 @@
+minimumReleaseAgeExcludePrune: true
+
+trustPolicy: no-downgrade
+
+# Published in late 2024 by their long-time maintainers without the provenance attestation
+# an earlier version had, which `no-downgrade` flags. Exact versions only: a newer release of
+# either package is checked as usual.
+trustPolicyExclude:
+  - chokidar@4.0.3 # via mocha
+  - undici-types@6.21.0 # via @types/node
+
+shellEmulator: true
+
+allowBuilds:
+  sqlite3: true

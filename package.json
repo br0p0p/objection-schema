@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Schema-first, class-free models for objection.js 3.x, with Standard Schema validation (zod, valibot, ...) and fully inferred types",
-  "license": "UNLICENSED",
   "author": "Caleb Williams",
+  "license": "UNLICENSED",
   "keywords": [
     "objection",
     "orm",
@@ -14,8 +14,6 @@
     "zod",
     "valibot"
   ],
-  "main": "./lib/index.js",
-  "types": "./typings/index.d.ts",
   "exports": {
     ".": {
       "import": {
@@ -29,6 +27,8 @@
     },
     "./package.json": "./package.json"
   },
+  "main": "./lib/index.js",
+  "types": "./typings/index.d.ts",
   "files": [
     "lib",
     "typings"
@@ -36,36 +36,48 @@
   "engines": {
     "node": ">=14.0.0"
   },
-  "peerDependencies": {
-    "objection": "^3.0.0"
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=12.14.0",
+      "onFail": "error"
+    }
   },
   "scripts": {
-    "test": "npm run test:runtime && npm run test:types && npm run test:package",
-    "test:runtime": "mocha --timeout 15000 \"tests/runtime/**/*.test.{js,mjs}\"",
+    "check": "pnpm run lint && pnpm test",
+    "test": "pnpm run test:runtime && pnpm run test:types && pnpm run test:package",
+    "test:runtime": "mocha \"tests/runtime/**/*.test.{js,mjs}\"",
     "test:types": "tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
-    "test:package": "attw --pack .",
+    "test:package": "pnpm pack --out node_modules/.cache/package.tgz && attw node_modules/.cache/package.tgz",
+    "test:properties": "mocha --timeout 60000 tests/runtime/properties.test.js",
     "test:objection-versions": "node scripts/test-objection-versions.js",
-    "format": "prettier --write \"{lib,typings,tests,bench,scripts}/**/*.{js,mjs,ts,mts,cts}\"",
-    "format:check": "prettier --check \"{lib,typings,tests,bench,scripts}/**/*.{js,mjs,ts,mts,cts}\"",
+    "test:mutations": "stryker run",
+    "test:mutations:types": "node scripts/mutate-types.js",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
     "bench": "node bench/compare.js",
     "bench:validation": "node bench/zod-cost.js",
     "bench:typecheck": "node bench/tooling/typecheck-scale.js",
-    "bench:completions": "node bench/tooling/completions.js",
-    "test:mutations": "stryker run",
-    "test:mutations:types": "node scripts/mutate-types.js",
-    "test:properties": "mocha --timeout 60000 tests/runtime/properties.test.js"
+    "bench:completions": "node bench/tooling/completions.js"
+  },
+  "peerDependencies": {
+    "objection": "^3.0.0"
   },
   "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
     "@arethetypeswrong/cli": "^0.18.5",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/mocha-runner": "^10.0.0",
     "@types/node": "^22.20.5",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "eslint": "^10.13.0",
     "expect.js": "^0.3.1",
     "fast-check": "^4.10.2",
+    "globals": "^17.13.0",
     "knex": "^3.3.0",
     "mocha": "^11.8.0",
     "objection": "^3.9.1",
-    "prettier": "^3.5.3",
     "sqlite3": "^5.1.7",
     "typescript": "~5.8",
     "valibot": "^1.5.0",

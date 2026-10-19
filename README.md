@@ -10,8 +10,8 @@ query builders, transactions and plugins.
 > the design notes and history are in the `objection-typed-exploration` repo (PR #1).
 
 ```ts
+import { column, defineModel, defineModels } from 'objection-schema';
 import { z } from 'zod';
-import { defineModel, defineModels, column } from 'objection-schema';
 
 const Person = defineModel({
   table: 'persons',
@@ -22,7 +22,7 @@ const Person = defineModel({
     status: z.enum(['active', 'inactive']).default('active'),
     parentId: column(z.number().nullable()).references('Person', 'id', { inverse: 'children' }),
   },
-  modifiers: { adults: (q) => q.where('age', '>=', 18) },
+  modifiers: { adults: q => q.where('age', '>=', 18) },
 });
 
 const Animal = defineModel({
@@ -45,12 +45,12 @@ const people = await db.Person.query()
 
 ## Requirements
 
-|            |                                                                                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| objection  | `^3.0.0` (peer dependency). Tested against 3.0.0, 3.1.5, 3.5.0 and 3.9.1 (`npm run test:objection-versions`). objection 4.x isn't supported yet. |
-| Node       | Same as objection 3 (≥ 14) for the runtime; tests run on Node 18–22.                                                                             |
-| TypeScript | ≥ 5.0 for the typings (tests use 5.8). objection 3.0.x's own declarations need `skipLibCheck` on TypeScript 5.8.                                 |
-| Schemas    | Any Standard Schema library. Runtime has no schema-library dependency. Validation must be synchronous.                                           |
+|            |                                                                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| objection  | `^3.0.0` (peer dependency). Tested against 3.0.0, 3.1.5, 3.5.0 and 3.9.1 (`pnpm run test:objection-versions`). objection 4.x isn't supported yet. |
+| Node       | Same as objection 3 (≥ 14) for the runtime; tests run on Node 18–22.                                                                              |
+| TypeScript | ≥ 5.0 for the typings (tests use 5.8). objection 3.0.x's own declarations need `skipLibCheck` on TypeScript 5.8.                                  |
+| Schemas    | Any Standard Schema library. Runtime has no schema-library dependency. Validation must be synchronous.                                            |
 
 ## CommonJS and ES modules
 
@@ -70,9 +70,11 @@ so an app that mixes `require` and `import` gets one instance (no dual package h
 objection 3.x is CommonJS either way.
 
 Since the repo is private, install it from GitHub with an authenticated git setup:
-`npm install github:br0p0p/objection-schema`.
+`npm install github:br0p0p/objection-schema` (or `pnpm add github:br0p0p/objection-schema`).
 
 ## Columns
+
+<!-- eslint-skip -->
 
 ```ts
 columns: {
@@ -95,6 +97,8 @@ schema is probed once with `undefined`. Failure means required, a value means a 
 Relations live outside `defineModel()`: putting them inline with `() => Model` thunks makes
 TypeScript type mutually- or self-referencing models as `any` (TS7022). There are three ways to
 declare them, and they can be mixed in one registry.
+
+<!-- eslint-skip -->
 
 ```ts
 // 1. Foreign keys on columns: a belongsToOne (named by `as`, or the column name without
@@ -187,11 +191,11 @@ Each column is validated with its own schema on `insert`, `insertGraph`, `upsert
 - `insertGraph` / `upsertGraph` inputs are checked deeply, with child foreign keys filled in.
 - Errors list the valid names (`'"agee"' is not assignable to '"id" | "firstName" | …'`), and
   completions work for columns, relation paths, relation targets and insert fields
-  (`npm run bench:completions`).
+  (`pnpm run bench:completions`).
 
 ## Performance
 
-Run `npm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node 22 with objection
+Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node 22 with objection
 3.1.5–3.9.1:
 
 - **Reads:** same speed as classic models. Nothing is validated on the way out.
@@ -225,14 +229,23 @@ Run `npm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node 
 
 ## Development
 
+The toolchain (Node and pnpm versions) is pinned in `mise.toml`; install [mise](https://mise.jdx.dev) and
+run `mise install`.
+
 ```bash
-npm install
-npm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
-npm run test:objection-versions # runtime + types against several objection 3.x releases
-npm run test:mutations          # Stryker mutation testing of lib/ (must stay at 100%)
-npm run test:mutations:types    # curated mutants of the type declarations (all must be caught)
-npm run format
+mise install
+pnpm install
+pnpm run check                   # lint (which includes formatting), then pnpm test: run this before pushing
+pnpm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
+pnpm run test:objection-versions # runtime + types against several objection 3.x releases
+pnpm run test:mutations          # Stryker mutation testing of lib/ (must stay at 100%)
+pnpm run test:mutations:types    # curated mutants of the type declarations (all must be caught)
+pnpm run lint:fix                # fix lint findings and format (ESLint, antfu's config)
 ```
+
+The invariants that changes must keep (runtime/types parity, Node 14 support, the 100% mutation
+score, …) and the workflow for making a change are in [AGENTS.md](AGENTS.md), which is also what
+coding agents read. `CLAUDE.md` and `.claude/` configure Claude Code for this repo.
 
 How the tests are layered:
 
@@ -253,4 +266,4 @@ How the tests are layered:
   - Mutation testing runs in CI on pull requests (`.github/workflows/mutation.yml`).
 
 If `sqlite3` fails to build (old `node-gyp` vs. Python ≥ 3.12), run
-`npm install --ignore-scripts`, then `cd node_modules/sqlite3 && npx node-gyp@latest rebuild`.
+`pnpm install --ignore-scripts`, then `cd node_modules/sqlite3 && pnpm dlx node-gyp@latest rebuild`.
