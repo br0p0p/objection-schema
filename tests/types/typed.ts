@@ -16,9 +16,12 @@ import * as v from 'valibot';
 import { z } from 'zod';
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
+
 type Equal<A, B>
   = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
 function expectType<T extends true>() {}
+
 declare function run<Q extends PromiseLike<any>>(query: Q): Awaited<Q>;
 
 // ---------------------------------------------------------------------------
@@ -112,6 +115,7 @@ defineModel({ table: 't', id: 'uuid', columns: { id: z.number() } });
 // ---------------------------------------------------------------------------
 
 type PersonRow = Row<typeof db.Person>;
+
 expectType<
   Equal<
     PersonRow,
@@ -129,21 +133,28 @@ expectType<
 >();
 
 type PersonInsert = Insert<typeof db.Person>;
+
 // Required on insert: firstName, lastName, address. Generated / db default / schema default are optional.
 expectType<Equal<keyof PersonInsert, keyof PersonRow>>();
+
 const okInsert: PersonInsert = { firstName: 'a', lastName: 'b', address: null };
+
 const okInsertWithRaw: PersonInsert = {
   firstName: raw('upper(?)', ['a']),
   lastName: 'b',
   address: null,
 };
+
 // @ts-expect-error lastName is required
 const missing: PersonInsert = { firstName: 'a', address: null };
+
 // @ts-expect-error wrong value type
 const wrongType: PersonInsert = { firstName: 'a', lastName: 1, address: null };
 
 type PersonPatch = Patch<typeof db.Person>;
+
 const okPatch: PersonPatch = { age: 3 };
+
 // @ts-expect-error status enum
 const badPatch: PersonPatch = { status: 'deleted' };
 
@@ -152,6 +163,7 @@ const Raw = defineModel({
   table: 'raw',
   columns: { id: unchecked<string>(), data: unchecked<{ a: 1 }>() },
 });
+
 expectType<Equal<Row<typeof Raw>, { id: string; data: { a: 1 } }>>();
 
 // ---------------------------------------------------------------------------
@@ -215,6 +227,7 @@ async function queries() {
   // ---------------------------------------------------------------------------
 
   type AnimalRow = Row<typeof db.Animal>;
+
   type MovieRow = { id: number; title: string };
 
   const [p1] = await db.Person.query().withGraphFetched({ pets: true, parent: { pets: true } });
@@ -259,6 +272,7 @@ async function queries() {
     .where('pets.species', 'dog')
     .where('parent:pets.name', 'Rex')
     .select('persons.firstName', 'pets.name as petName');
+
   expectType<Equal<typeof joined, { firstName: string; petName: string }[]>>();
   // @ts-expect-error not joined
   db.Person.query().where('pets.species', 'dog');
@@ -297,6 +311,7 @@ async function queries() {
     lastName: 'b',
     address: null,
   });
+
   expectType<Equal<typeof fetched, PersonRow>>();
 
   const n = await db.Person.query().patch({ age: 1 }).where('id', 1);
@@ -318,6 +333,7 @@ async function queries() {
     pets: [{ name: 'Rex', species: 'dog', ownerId: null }],
     movies: [{ title: 'Up', role: 'Lead' }],
   });
+
   expectType<Equal<typeof graph.id, number>>();
   // @ts-expect-error species is an enum
   db.Person.query().insertGraph({
@@ -360,7 +376,9 @@ async function queries() {
   // Helper types
   const q = db.Person.query().select('id').first();
   expectType<Equal<Result<typeof q>, { id: number } | undefined>>();
+
   type PersonWithPets = RowWithGraph<typeof db.Person, 'pets'>;
+
   expectType<Equal<PersonWithPets['pets'], AnimalRow[]>>();
 }
 
@@ -402,6 +420,7 @@ const ownerRelations = relations(Owner, r => ({
   // @ts-expect-error `ownerIdd` is not a column of Pet
   typo: r.hasMany(Pet, { from: 'id', to: 'ownerIdd' }),
 }));
+
 const vetRelations = relations(Vet, r => ({
   colleagues: r.hasMany(Vet, { from: 'id', to: 'id' }),
 }));
@@ -418,7 +437,9 @@ const zoo = defineModels({ Owner, Pet, Vet, Movie }, [ownerRelations, vetRelatio
 
 async function relationStyles() {
   type OwnerRow = Row<typeof zoo.Owner>;
+
   type PetRow = Row<typeof zoo.Pet>;
+
   type VetRow = Row<typeof zoo.Vet>;
 
   const [o] = await zoo.Owner.query().withGraphFetched({
@@ -427,6 +448,7 @@ async function relationStyles() {
     pets: { doctor: true }, // inverse of Pet.ownerId, then forward with `as`
     movies: true, // relations()
   });
+
   expectType<Equal<typeof o.parent, OwnerRow | null>>();
   expectType<Equal<typeof o.children, OwnerRow[]>>();
   expectType<Equal<(typeof o.pets)[number]['doctor'], VetRow | null>>();
@@ -453,6 +475,7 @@ async function relationStyles() {
 const ownerPetsRelation = relations(Owner, r => ({
   pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
 }));
+
 // @ts-expect-error relation "Owner.pets" is defined more than once (references() inverse + relations())
 defineModels({ Owner, Pet, Vet }, [ownerPetsRelation]);
 
@@ -469,6 +492,7 @@ const BadColumn = defineModel({
   table: 'b',
   columns: { id: z.number(), ownerId: column(z.number()).references('Owner', 'uuid') },
 });
+
 // @ts-expect-error references(): unknown column "Owner.uuid"
 defineModels({ Owner, BadColumn });
 
@@ -476,6 +500,7 @@ const NoName = defineModel({
   table: 'c',
   columns: { id: z.number(), owner: column(z.number()).references('Owner', 'id') },
 });
+
 // @ts-expect-error references(): needs an `as` relation name
 defineModels({ Owner, NoName });
 
@@ -486,12 +511,14 @@ const InverseOnClassic = defineModel({
     movieId: column(z.number()).references('Movie', 'id', { inverse: 'links' }),
   },
 });
+
 // @ts-expect-error "Movie" is a classic model class and can't get the inverse relation "links"
 defineModels({ Movie, InverseOnClassic });
 
 const strangerRelations = relations(Vet, r => ({
   x: r.hasMany(Vet, { from: 'id', to: 'id' }),
 }));
+
 // @ts-expect-error relations() declared for a model that isn't part of this registry
 defineModels({ Owner, Pet: Raw }, [strangerRelations]);
 
@@ -500,36 +527,42 @@ type ErrorsOf<M extends Record<string, any>, D extends readonly unknown[] = []> 
   M,
   D
 >;
+
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; Pet: typeof Pet; Vet: typeof Vet }, [typeof ownerPetsRelation]>,
     'relation "Owner.pets" is defined more than once'
   >
 >();
+
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; Pet: typeof Pet }>,
     'Pet.vetId.references(): unknown model "Vet"'
   >
 >();
+
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; BadColumn: typeof BadColumn }>,
     'BadColumn.ownerId.references(): unknown column "Owner.uuid"'
   >
 >();
+
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; NoName: typeof NoName }>,
     'NoName.owner.references(): needs an `as` relation name'
   >
 >();
+
 expectType<
   Equal<
     ErrorsOf<{ Movie: typeof Movie; InverseOnClassic: typeof InverseOnClassic }>,
     'InverseOnClassic.movieId.references(): "Movie" is a classic model class and can\'t get the inverse relation "links"'
   >
 >();
+
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; Pet: typeof Raw }, [typeof strangerRelations]>,
@@ -537,6 +570,7 @@ expectType<
     | 'relation "x" points to a model that isn\'t part of this registry'
   >
 >();
+
 // And a valid registry has none.
 expectType<
   Equal<
@@ -556,6 +590,7 @@ const Author = defineModel({
   table: 'authors',
   columns: { id: libraryColumn(z.number()).generated(), name: z.string() },
 });
+
 const Book = defineModel({
   table: 'books',
   columns: {
@@ -566,8 +601,10 @@ const Book = defineModel({
 
 // @ts-expect-error "Autor" is not a declared model name
 libraryColumn(z.number()).references('Autor', 'id');
+
 // @ts-expect-error still checked after other modifiers
 libraryColumn(z.number()).generated().references('Autor', 'id');
+
 // Plain `column()` accepts any name; it's checked when `defineModels` runs instead.
 column(z.number()).references('Anything', 'id');
 
@@ -587,6 +624,7 @@ const Snake = defineModel({
   table: 'snakes',
   columns: { id: z.number(), owner_id: column(z.number()).references('Owner', 'id') },
 });
+
 const snakeDb = defineModels({ Owner, Snake });
 
 async function snakeCaseReference() {

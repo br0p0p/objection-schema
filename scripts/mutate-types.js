@@ -1,5 +1,7 @@
 'use strict';
+
 const { execSync } = require('node:child_process');
+
 // Mutation testing for the type declarations, which Stryker can't mutate. Each mutant
 // breaks one promise of the types; the type tests must fail for every one of them.
 // A mutant whose pattern no longer matches the source is an error, not a skip, so the
@@ -9,10 +11,12 @@ const path = require('node:path');
 const process = require('node:process');
 
 const root = path.resolve(__dirname, '..');
+
 const TYPES
   = 'pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json';
 
 const D = 'typings/index.d.ts';
+
 const mutants = [
   [
     D,
@@ -131,6 +135,7 @@ const mutants = [
 function passes() {
   try {
     execSync(TYPES, { cwd: root, stdio: 'pipe' });
+
     return true;
   }
   catch {
@@ -158,6 +163,7 @@ for (const [file, find, replace, description] of mutants) {
 
   fs.writeFileSync(filePath, original.replace(find, replace));
   let survived;
+
   try {
     survived = passes();
   }
@@ -166,12 +172,14 @@ for (const [file, find, replace, description] of mutants) {
   }
 
   console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
+
   if (survived)
     problems.push(`survived: ${description}`);
   else caught += 1;
 }
 
 console.log(`\n${caught}/${mutants.length} type mutants caught`);
+
 if (problems.length) {
   console.log(problems.map(it => `- ${it}`).join('\n'));
   process.exitCode = 1;

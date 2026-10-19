@@ -1,4 +1,5 @@
 'use strict';
+
 // Classic class + JSON schema (Ajv) model vs. defineModel with zod / valibot.
 // Same table, same columns, same constraints. Run: node bench/compare.js
 //
@@ -71,17 +72,20 @@ const models = {
 async function bench(fn, n = 15) {
   for (let i = 0; i < 5; ++i) await fn();
   let best = Infinity;
+
   for (let i = 0; i < n; ++i) {
     const t0 = process.hrtime.bigint();
     await fn();
     best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6);
   }
+
   return best;
 }
 
 async function main() {
   const dbRows = [];
   const inputs = [];
+
   for (let i = 0; i < ROWS; ++i) {
     const address = { street: `s${i}`, city: 'c' };
     dbRows.push({
@@ -100,6 +104,7 @@ async function main() {
     connection: { filename: ':memory:' },
     useNullAsDefault: true,
   });
+
   await knex.schema.createTable('people', (t) => {
     t.increments('id');
     t.string('firstName');
@@ -108,10 +113,12 @@ async function main() {
     t.text('address');
     t.integer('parentId');
   });
+
   for (let i = 0; i < dbRows.length; i += 500)
     await knex('people').insert(dbRows.slice(i, i + 500));
 
   const M = models[process.argv[2]];
+
   const result = {
     'rows → models': await bench(() => dbRows.map(row => M.fromDatabaseJson({ ...row }))),
     'validate insert': await bench(() => inputs.map(it => M.fromJson(it))),
@@ -120,6 +127,7 @@ async function main() {
     ),
     'sqlite select': await bench(() => M.query(knex), 8),
   };
+
   await knex.destroy();
   process.stdout.write(JSON.stringify(result));
 }
@@ -143,6 +151,7 @@ function report() {
   );
   console.log(`| model | ${cols.join(' | ')} |`);
   console.log(`|---|${cols.map(() => '---:').join('|')}|`);
+
   for (const name of Object.keys(models)) {
     const cells = cols.map(c => median(samples[name].map(s => s[c])).toFixed(1));
     console.log(`| ${name} | ${cells.join(' | ')} |`);

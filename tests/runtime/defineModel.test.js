@@ -2,6 +2,7 @@
 
 const expect = require('expect.js');
 const { Model, ValidationError, transaction, mixin } = require('objection');
+
 const {
   defineModel,
   defineModels,
@@ -10,6 +11,7 @@ const {
   defineModelNames,
   unchecked,
 } = require('objection-schema');
+
 const v = require('valibot');
 const { z } = require('zod');
 const { connect } = require('./db');
@@ -288,6 +290,7 @@ describe('objection-schema', () => {
       const names = await db.Person.query()
         .joinRelated('pets')
         .select('persons.firstName', 'pets.name as petName');
+
       expect(names).to.eql(
         [{ firstName: 'Child', petName: 'Rex' }].map(it =>
           Object.assign(new Person.modelClass(), it),
@@ -403,6 +406,7 @@ describe('objection-schema', () => {
         table: 'persons',
         columns: { id: z.number(), parent_id: column(z.number()).references('Owner', 'id') },
       });
+
       const Pet = defineModel({
         table: 'animals',
         columns: {
@@ -424,6 +428,7 @@ describe('objection-schema', () => {
       // An inverse given as an object without `kind` is a hasMany. (A fresh owner: objection
       // caches relations on first use, so a definition belongs to one registry.)
       const Clinic = defineModel({ table: 'clinics', columns: { id: z.number() } });
+
       const Vet = defineModel({
         table: 'vets',
         columns: {
@@ -431,12 +436,14 @@ describe('objection-schema', () => {
           clinicId: column(z.number()).references('Clinic', 'id', { inverse: { name: 'vets' } }),
         },
       });
+
       defineModels({ Clinic, Vet });
       expect(Clinic.modelClass.getRelations().vets).to.be.a(Model.HasManyRelation);
     });
 
     it('relations() declarations can target classic models', async () => {
       const { Owner, Pet } = makeModels();
+
       const ownerRelations = relations(Owner, r => ({
         movies: r.manyToMany(Movie, {
           from: 'id',
@@ -446,6 +453,7 @@ describe('objection-schema', () => {
       }));
 
       const db = defineModels({ Owner, Pet, Movie }, [ownerRelations]);
+
       const owner = await db.Owner.query().insertGraph({
         firstName: 'A',
         lastName: 'B',
@@ -468,6 +476,7 @@ describe('objection-schema', () => {
         table: 'persons',
         columns: { id: col(z.number()).generated(), firstName: z.string(), lastName: z.string() },
       });
+
       const Pet = defineModel({
         table: 'animals',
         columns: {
@@ -494,6 +503,7 @@ describe('objection-schema', () => {
 
       it('same relation name from two sources', () => {
         const { Owner, Pet } = makeModels();
+
         const ownerRelations = relations(Owner, r => ({
           pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
         }));
@@ -506,6 +516,7 @@ describe('objection-schema', () => {
 
       it('same relation name in relations() and the keyed object', () => {
         const { Owner, Pet } = makeModels();
+
         const ownerRelations = relations(Owner, r => ({
           parent: r.belongsToOne(Owner, { from: 'parentId', to: 'id' }),
         }));
@@ -541,24 +552,28 @@ describe('objection-schema', () => {
           table: 'animals',
           columns: columns(column(z.number()).references('Ownr', 'id')),
         });
+
         throws(() => defineModels({ Owner, Pet: unknownModel }), /points to unknown model "Ownr"/);
 
         const unknownColumn = defineModel({
           table: 'animals',
           columns: columns(column(z.number()).references('Owner', 'uuid')),
         });
+
         throws(() => defineModels({ Owner, Pet: unknownColumn }), /unknown column "Owner.uuid"/);
 
         const noName = defineModel({
           table: 'animals',
           columns: { id: z.number(), owner: column(z.number()).references('Owner', 'id') },
         });
+
         throws(() => defineModels({ Owner, Pet: noName }), /needs an `as` relation name/);
 
         const inverseOnClassic = defineModel({
           table: 'persons_movies',
           columns: columns(column(z.number()).references('Movie', 'id', { inverse: 'links' })),
         });
+
         throws(
           () => defineModels({ Movie, Link: inverseOnClassic }),
           /"Movie" is a classic model class/,
@@ -584,6 +599,7 @@ describe('objection-schema', () => {
 
       it('a definition in a second registry, or twice in one', () => {
         const { Owner, Pet } = makeModels();
+
         const first = defineModels(
           { Owner, Pet },
           { Owner: r => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }) },
@@ -645,6 +661,7 @@ describe('objection-schema', () => {
         class extends Base {
           $beforeInsert(ctx) {
             this.lastName = `${this.lastName} (stamped)`;
+
             return super.$beforeInsert(ctx);
           }
         };
@@ -665,6 +682,7 @@ describe('objection-schema', () => {
 
     it('function hooks', async () => {
       const calls = [];
+
       const Hooked = defineModel({
         table: 'animals',
         columns: { id: column(z.number()).generated(), name: z.string(), species: z.string() },

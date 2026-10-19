@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 type Equal<A, B>
   = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
 function expectType<T extends true>() {}
 
 const Item = defineModel({
@@ -15,6 +16,7 @@ const Item = defineModel({
     parentId: column(z.number().nullable()).references('Item', 'id', { inverse: 'children' }),
   },
 });
+
 const itemRelations = relations(Item, () => ({}));
 const db = defineModels({ Item }, [itemRelations]);
 

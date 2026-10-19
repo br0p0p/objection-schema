@@ -1,4 +1,5 @@
 'use strict';
+
 // Installs the packed package into a fresh project, the way users get it, and runs a small
 // app from CommonJS, ES modules and TypeScript (nodenext) against the app's own objection.
 // Catches files missing from the package, broken `exports` and a second copy of objection
@@ -19,14 +20,17 @@ const keep = process.argv.includes('--keep');
 function run(cmd, args, cwd = dir) {
   return execFileSync(cmd, args, { cwd, stdio: 'pipe', encoding: 'utf8' });
 }
+
 const write = (file, content) => fs.writeFileSync(path.join(dir, file), content.trimStart());
 
 try {
   // The package contains only what users need.
   const packed = JSON.parse(run('pnpm', ['pack', '--json', '--pack-destination', dir], root));
+
   const unexpected = packed.files
     .map(it => it.path)
     .filter(it => !/^(?:lib\/|typings\/|package\.json$|README\.md$)/.test(it));
+
   if (unexpected.length)
     throw new Error(`unexpected files in the package: ${unexpected}`);
 
@@ -111,6 +115,7 @@ export async function check() {
   return [id, name];
 }
 `;
+
   const zod = `import { z } from 'zod';`;
   write(
     'typed.mts',

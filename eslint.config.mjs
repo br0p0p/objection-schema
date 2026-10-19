@@ -21,6 +21,8 @@ export default antfu(
     // antfu ignores all of .claude/ (agent worktrees live there); lint the project's hooks.
     ignores: defaults => [
       ...defaults.filter(glob => glob !== '**/.claude'),
+      // Preserve the vendored anti-slop source and its upstream formatting for future merges.
+      'tools/oxlint/anti-slop/**',
       '**/.claude/*',
       '!.claude/hooks/',
     ],

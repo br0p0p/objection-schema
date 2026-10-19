@@ -22,7 +22,7 @@ const NUM_RUNS = Number(process.env.FC_NUM_RUNS || 200);
 
 const Address = z.object({ street: z.string().min(1), city: z.string() });
 
-const shape = {
+const columnContracts = {
   id: { schema: z.number().int().positive(), meta: 'generated' },
   firstName: { schema: z.string().trim().min(1) }, // required, transformed
   email: { schema: z.string().toLowerCase() }, // required, transformed
@@ -36,13 +36,16 @@ const shape = {
 const Person = defineModel({
   table: 'people',
   columns: Object.fromEntries(
-    Object.entries(shape).map(([prop, { schema, meta }]) => {
+    Object.entries(columnContracts).map(([prop, { schema, meta }]) => {
       if (meta === 'generated')
         return [prop, column(schema).generated()];
+
       if (meta === 'hasDefault')
         return [prop, column(schema).hasDefault()];
+
       if (meta === 'json')
         return [prop, column(schema).json()];
+
       return [prop, schema];
     }),
   ),
@@ -52,7 +55,7 @@ const Person = defineModel({
 // in are optional; unknown keys pass through, as objection allows them by default.
 const oracle = z.looseObject(
   Object.fromEntries(
-    Object.entries(shape).map(([prop, { schema, meta }]) => [
+    Object.entries(columnContracts).map(([prop, { schema, meta }]) => [
       prop,
       meta === 'generated' || meta === 'hasDefault' ? schema.optional() : schema,
     ]),
@@ -99,10 +102,11 @@ const valid = {
 // model doesn't know. The weights give a mix of valid and invalid inputs (see the
 // distribution test below); uniform choices made almost every input invalid.
 const MISSING = Symbol('missing');
+
 const anyInput = fc
   .record({
     ...Object.fromEntries(
-      Object.keys(shape).map(prop => [
+      Object.keys(columnContracts).map(prop => [
         prop,
         fc.oneof(
           { arbitrary: valid[prop], weight: 12 },
@@ -118,7 +122,7 @@ const anyInput = fc
   );
 
 const validInput = fc.record(
-  Object.fromEntries(Object.keys(shape).map(prop => [prop, valid[prop]])),
+  Object.fromEntries(Object.keys(columnContracts).map(prop => [prop, valid[prop]])),
   { requiredKeys: ['firstName', 'email', 'address'] },
 );
 
@@ -131,12 +135,14 @@ function outcome(fn) {
   catch (err) {
     if (!err.data)
       throw err;
+
     return { ok: false, keys: Object.keys(err.data).sort() };
   }
 }
 
 function oracleOutcome(input) {
   const result = oracle.safeParse(input);
+
   return result.success
     ? { ok: true, value: dropUndefined(result.data) }
     : { ok: false, keys: [...new Set(result.error.issues.map(it => it.path.join('.')))].sort() };
@@ -156,8 +162,10 @@ describe('properties', () => {
       // Guards the generator itself: a property over inputs that are (almost) always
       // invalid would never check successful output.
       const samples = fc.sample(anyInput, { numRuns: 2000, seed: 42 });
+
       const validShare
         = samples.filter(it => oracle.safeParse(it).success).length / samples.length;
+
       expect(validShare).to.be.within(0.2, 0.8);
     });
 
@@ -200,12 +208,14 @@ describe('properties', () => {
         fc.property(anyInput, (input) => {
           const result = outcome(() => Person.validate(input, { patch: true }));
           const given = Object.keys(dropUndefined(input));
+
           const invalid = given.filter(
-            prop => shape[prop] && !shape[prop].schema.safeParse(input[prop]).success,
+            prop => columnContracts[prop] && !columnContracts[prop].schema.safeParse(input[prop]).success,
           );
 
           if (invalid.length) {
             expect(result.ok).to.be(false);
+
             // Every error belongs to one of the invalid keys.
             for (const key of result.keys) {
               expect(invalid).to.contain(key.split('.')[0]);
@@ -228,6 +238,7 @@ describe('properties', () => {
       knex = await connect();
       await knex.schema.createTable('people', (t) => {
         t.increments('id');
+
         for (const col of ['firstName', 'email', 'status', 'createdAt']) t.string(col);
         t.integer('age');
         t.text('address');
@@ -251,6 +262,7 @@ describe('properties', () => {
             ...validated,
             id: inserted.id,
           };
+
           expect(dropUndefined(read)).to.eql(dropUndefined(expected));
         }),
         { numRuns: Math.ceil(NUM_RUNS / 4) },
@@ -277,6 +289,7 @@ describe('properties', () => {
     const registrySpec = fc.integer({ min: 2, max: 4 }).chain((modelCount) => {
       const model = fc.integer({ min: 0, max: modelCount - 1 });
       const name = fc.constantFrom(...NAMES);
+
       return fc.record({
         modelCount: fc.constant(modelCount),
         references: fc.array(
@@ -302,17 +315,21 @@ describe('properties', () => {
         spec.references.forEach((ref, j) => {
           if (ref.from === i) {
             const options = {};
+
             if (ref.as)
               options.as = ref.as;
+
             if (ref.inverse)
               options.inverse = { name: ref.inverse, kind: ref.inverseKind };
             columns[`fk${j}Id`] = column(z.number()).references(`M${ref.to}`, 'id', options);
           }
         });
+
         return columns;
       };
 
       const models = {};
+
       for (let i = 0; i < spec.modelCount; ++i) {
         models[`M${i}`] = defineModel({ name: `M${i}`, table: `t${i}`, columns: columnsOf(i) });
       }
@@ -324,12 +341,15 @@ describe('properties', () => {
       );
 
       const keyed = {};
+
       for (const k of spec.keyed) {
         const previous = keyed[`M${k.owner}`];
-        keyed[`M${k.owner}`] = r => ({
-          ...(previous ? previous(r) : {}),
-          [k.name]: r.belongsToOne(`M${k.target}`, { from: 'id', to: 'id' }),
-        });
+        keyed[`M${k.owner}`] = (r) => {
+          const definitions = previous ? previous(r) : {};
+          definitions[k.name] = r.belongsToOne(`M${k.target}`, { from: 'id', to: 'id' });
+
+          return definitions;
+        };
       }
 
       return () => defineModels(models, declarations, keyed);
@@ -340,6 +360,7 @@ describe('properties', () => {
       const defs = [];
       spec.references.forEach((ref, j) => {
         defs.push({ owner: ref.from, name: ref.as || `fk${j}`, kind: 'BelongsToOneRelation' });
+
         if (ref.inverse) {
           defs.push({
             owner: ref.to,
@@ -355,10 +376,13 @@ describe('properties', () => {
       // The keyed object holds one function per model, so a repeated name there overwrites
       // instead of conflicting: the last one wins, like an object literal.
       const keyedLast = new Map();
+
       for (const k of spec.keyed) keyedLast.set(`${k.owner}.${k.name}`, k);
+
       for (const k of keyedLast.values()) {
         defs.push({ owner: k.owner, name: k.name, kind: 'BelongsToOneRelation' });
       }
+
       return defs;
     }
 
@@ -366,20 +390,25 @@ describe('properties', () => {
     function predictedConflicts(defs) {
       const seen = new Set();
       const conflicts = new Set();
+
       for (const def of defs) {
         const key = `M${def.owner}.${def.name}`;
+
         if (seen.has(key) || def.name === 'label')
           conflicts.add(key);
         seen.add(key);
       }
+
       return conflicts;
     }
 
     it('generates registries with and without conflicts', () => {
       const samples = fc.sample(registrySpec, { numRuns: 1000, seed: 42 });
+
       const share
         = samples.filter(spec => predictedConflicts(expectedRelations(spec)).size > 0).length
           / samples.length;
+
       expect(share).to.be.within(0.2, 0.8);
     });
 
@@ -391,6 +420,7 @@ describe('properties', () => {
 
           let error = null;
           let db = null;
+
           try {
             db = build(spec)();
           }
@@ -407,14 +437,17 @@ describe('properties', () => {
           else {
             if (error)
               throw error;
+
             for (let i = 0; i < spec.modelCount; ++i) {
               const actual = Object.entries(db[`M${i}`].modelClass.getRelations())
                 .map(([name, relation]) => `${name}:${relation.constructor.name}`)
                 .sort();
+
               const expected = defs
                 .filter(d => d.owner === i)
                 .map(d => `${d.name}:${d.kind}`)
                 .sort();
+
               expect(actual).to.eql(expected);
             }
           }

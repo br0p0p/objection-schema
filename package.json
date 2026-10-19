@@ -58,6 +58,7 @@
     "test:mutations:types": "node scripts/mutate-types.js",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "lint:anti-slop": "oxlint --max-warnings 0 .",
     "bench": "node bench/compare.js",
     "bench:validation": "node bench/zod-cost.js",
     "bench:typecheck": "node bench/tooling/typecheck-scale.js",
@@ -69,6 +70,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
     "@arethetypeswrong/cli": "^0.18.5",
+    "@oxlint/plugins": "1.89.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/mocha-runner": "^10.0.0",
     "@types/node": "^22.20.5",
@@ -82,6 +84,7 @@
     "mocha": "^11.8.0",
     "mysql2": "^3.24.6",
     "objection": "^3.9.1",
+    "oxlint": "1.89.0",
     "pg": "^8.23.1",
     "sqlite3": "^5.1.7",
     "typescript": "~5.8",

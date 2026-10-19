@@ -261,7 +261,19 @@ pnpm run test:objection-versions # runtime + types against several objection 3.x
 pnpm run test:mutations          # Stryker mutation testing of lib/ (must stay at 100%)
 pnpm run test:mutations:types    # curated mutants of the type declarations (all must be caught)
 pnpm run lint:fix                # fix lint findings and format (ESLint, antfu's config)
+pnpm run lint:anti-slop          # additional anti-slop policy audit
 ```
+
+[Anti-slop](https://github.com/dmmulroy/anti-slop) is vendored in `tools/oxlint/anti-slop/`,
+with matching, exact Oxlint dependencies and generic rules configured in `.oxlintrc.json`.
+The `no-runtime-typeof` rule is intentionally off: runtime type checks are legitimate in this
+validation library. For now, `no-object-parameters`, `no-unknown-parameters`, and
+`no-unsafe-dictionary-type` are also off to preserve the library's public type contracts.
+All other generic rules remain enabled. ESLint remains the formatter and existing lint gate;
+anti-slop is a separate audit, not part of `check` or CI. The configured audit passes after safe
+fixes and these policy adjustments; runtime behavior and public type contracts are unchanged.
+See the vendored
+[provenance and baseline](tools/oxlint/anti-slop/UPSTREAM.md) for details and update guidance.
 
 The invariants that changes must keep (runtime/types parity, Node 14 support, the 100% mutation
 score, …) and the workflow for making a change are in [AGENTS.md](AGENTS.md), which is also what
