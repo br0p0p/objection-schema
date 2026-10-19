@@ -73,7 +73,15 @@ type Add = (ownerKey: string, name: string, spec: Spec, source: string) => void;
 
 // The model classes of definitions that are part of a registry. Relations are set on the
 // class itself, so a second registry would silently replace the first one's relations.
-const registered = new WeakSet<ModelClass>();
+//
+// The CommonJS and ES module builds are two copies of this file, and an app may load both
+// (`require` and `import`). They share the set through a global symbol, as do other installed
+// versions of the package, since they'd set relations on the same classes too.
+const REGISTERED: unique symbol = Symbol.for('objection-schema.registered');
+
+// SAFETY: only this file sets the property, and always to a set of model classes.
+const shared = globalThis as typeof globalThis & { [REGISTERED]?: WeakSet<ModelClass> };
+const registered = shared[REGISTERED] || (shared[REGISTERED] = new WeakSet<ModelClass>());
 
 // Relations are declared outside `defineModel()` so that models can reference each
 // other (and themselves) without the circular type inference problems that a

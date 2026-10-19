@@ -16,18 +16,14 @@
   ],
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      },
-      "require": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      }
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "files": [
     "dist"
@@ -43,7 +39,7 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build": "zshy",
     "prepack": "pnpm run build",
     "check": "pnpm run lint && pnpm test",
     "test": "pnpm run build && pnpm run test:runtime:built && pnpm run test:types:built && pnpm run test:package:built",
@@ -93,6 +89,13 @@
     "sqlite3": "^5.1.7",
     "typescript": "~5.8",
     "valibot": "^1.5.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "zshy": "0.8.0"
+  },
+  "zshy": {
+    "exports": {
+      ".": "./lib/index.ts",
+      "./package.json": "./package.json"
+    }
   }
 }

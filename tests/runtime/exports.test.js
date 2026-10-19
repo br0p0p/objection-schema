@@ -1,8 +1,8 @@
 'use strict';
 
-// The public surface is declared in lib/index.ts (values and types), and again in its ES module
-// re-export (lib/index.mts, checked in esm.test.mjs). Both are built, so this compares the
-// built declarations with the built runtime: a value exported only as a type (`export type`),
+// The public surface is declared in lib/index.ts (values and types), which zshy builds as
+// CommonJS and as an ES module (compared in esm.test.mjs). This compares the built declarations
+// with the built runtime: a value exported only as a type (`export type`),
 // or a type-only declaration of something that isn't exported at runtime, would slip past the
 // runtime and the type tests on their own.
 
