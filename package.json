@@ -1,0 +1,68 @@
+{
+  "name": "objection-schema",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Schema-first, class-free models for objection.js 3.x, with Standard Schema validation (zod, valibot, ...) and fully inferred types",
+  "license": "UNLICENSED",
+  "author": "Caleb Williams",
+  "keywords": [
+    "objection",
+    "orm",
+    "knex",
+    "typescript",
+    "standard-schema",
+    "zod",
+    "valibot"
+  ],
+  "main": "./lib/index.js",
+  "types": "./typings/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./typings/index.d.mts",
+        "default": "./lib/index.mjs"
+      },
+      "require": {
+        "types": "./typings/index.d.ts",
+        "default": "./lib/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "typings"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "peerDependencies": {
+    "objection": "^3.0.0"
+  },
+  "scripts": {
+    "test": "npm run test:runtime && npm run test:types && npm run test:package",
+    "test:runtime": "mocha --timeout 15000 \"tests/runtime/**/*.test.{js,mjs}\"",
+    "test:types": "tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
+    "test:package": "attw --pack .",
+    "test:objection-versions": "node scripts/test-objection-versions.js",
+    "format": "prettier --write \"{lib,typings,tests,bench,scripts}/**/*.{js,mjs,ts,mts,cts}\"",
+    "format:check": "prettier --check \"{lib,typings,tests,bench,scripts}/**/*.{js,mjs,ts,mts,cts}\"",
+    "bench": "node bench/compare.js",
+    "bench:validation": "node bench/zod-cost.js",
+    "bench:typecheck": "node bench/tooling/typecheck-scale.js",
+    "bench:completions": "node bench/tooling/completions.js"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@types/node": "^22.20.5",
+    "expect.js": "^0.3.1",
+    "knex": "^3.3.0",
+    "mocha": "^11.8.0",
+    "objection": "^3.9.1",
+    "prettier": "^3.5.3",
+    "sqlite3": "^5.1.7",
+    "typescript": "~5.8",
+    "valibot": "^1.5.0",
+    "zod": "^4.6.7"
+  }
+}

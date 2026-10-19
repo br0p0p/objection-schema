@@ -1,0 +1,50 @@
+// The ES module entry point: same exports and the same instances as `require()`,
+// working against objection 3.x (which is CommonJS) from ESM code.
+import { createRequire } from 'node:module';
+import expect from 'expect.js';
+import Knex from 'knex';
+import { z } from 'zod';
+import { Model } from 'objection';
+import * as esm from 'objection-schema';
+import { defineModel, defineModels, column } from 'objection-schema';
+
+const require = createRequire(import.meta.url);
+const cjs = require('objection-schema');
+
+describe('ES module entry point', () => {
+  it('exports exactly what the CommonJS entry point exports, as the same instances', () => {
+    expect(Object.keys(esm).sort()).to.eql(Object.keys(cjs).sort());
+
+    for (const name of Object.keys(cjs)) {
+      expect(esm[name]).to.be(cjs[name]);
+    }
+  });
+
+  it('defines and queries models from ESM code', async () => {
+    const knex = Knex({
+      client: 'sqlite3',
+      connection: { filename: ':memory:' },
+      useNullAsDefault: true,
+    });
+
+    try {
+      await knex.schema.createTable('items', (t) => {
+        t.increments('id');
+        t.string('name');
+      });
+
+      const Item = defineModel({
+        table: 'items',
+        columns: { id: column(z.number()).generated(), name: z.string().trim().min(1) },
+      });
+      const db = defineModels({ Item });
+
+      const item = await db.Item.query(knex).insert({ name: '  ok  ' });
+      expect(item.name).to.equal('ok');
+      expect(item).to.be.a(Model);
+      expect(await db.Item.query(knex).resultSize()).to.equal(1);
+    } finally {
+      await knex.destroy();
+    }
+  });
+});
