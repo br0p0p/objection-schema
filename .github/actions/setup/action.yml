@@ -1,0 +1,35 @@
+name: Setup
+description: Install the toolchain from mise.toml (Node, pnpm) and the dependencies.
+
+inputs:
+  node-version:
+    description: Node version instead of the one in mise.toml (for the test matrix).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Override Node version
+      if: inputs.node-version != ''
+      shell: bash
+      run: echo "MISE_NODE_VERSION=${{ inputs.node-version }}" >> "$GITHUB_ENV"
+
+    - uses: jdx/mise-action@v5
+      with:
+        cache_key_prefix: mise-node${{ inputs.node-version }}
+
+    - name: Locate the pnpm store
+      id: pnpm-store
+      shell: bash
+      run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: pnpm-store-${{ runner.os }}-
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

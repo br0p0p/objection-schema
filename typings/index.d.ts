@@ -10,22 +10,22 @@
 
 import type { Knex } from 'knex';
 import type {
+  FunctionBuilder,
+  GraphOptions,
+  InsertGraphOptions,
   Model,
   ModelClass,
   ModelConstructor,
   ModelObject,
+  ModelOptions,
   QueryBuilder,
   QueryContext,
-  ModelOptions,
-  TransactionOrKnex,
   RawBuilder,
   ReferenceBuilder,
-  ValueBuilder,
-  FunctionBuilder,
-  InsertGraphOptions,
+  TransactionOrKnex,
   UpsertGraphOptions,
-  GraphOptions,
   Validator,
+  ValueBuilder,
 } from 'objection';
 
 // ---------------------------------------------------------------------------
@@ -78,12 +78,12 @@ type StrKeys<T> = keyof T & string;
 type IsNever<T> = [T] extends [never] ? true : false;
 
 /** Values that objection accepts in place of a literal value. */
-export type ValueExpression =
-  | RawBuilder
-  | ReferenceBuilder
-  | ValueBuilder
-  | FunctionBuilder
-  | Knex.Raw;
+export type ValueExpression
+  = | RawBuilder
+    | ReferenceBuilder
+    | ValueBuilder
+    | FunctionBuilder
+    | Knex.Raw;
 
 // ---------------------------------------------------------------------------
 // Columns
@@ -160,8 +160,8 @@ export interface Column<
 export type ColumnInput = StandardSchemaV1 | Column<any, any, any, any>;
 export type Columns = Record<string, ColumnInput>;
 
-type SchemaOf<C> =
-  C extends Column<infer S, any, any, any> ? S : C extends StandardSchemaV1 ? C : never;
+type SchemaOf<C>
+  = C extends Column<infer S, any, any, any> ? S : C extends StandardSchemaV1 ? C : never;
 type FlagsOf<C> = C extends Column<any, infer F, any, any> ? F : DefaultFlags;
 type ReferenceOfColumn<C> = C extends Column<any, any, infer R, any> ? R : null;
 type ColOut<C> = StandardSchemaV1.InferOutput<SchemaOf<C>>;
@@ -203,8 +203,8 @@ type InsertResultOfColumns<C extends Columns, Id extends IdSpec> = Simplify<
   Pick<
     RowOfColumns<C>,
     Exclude<keyof C, OptionalInsertKeys<C>> | IdKeys<Id> | SchemaDefaultKeys<C>
-  > &
-    Partial<RowOfColumns<C>>
+  >
+  & Partial<RowOfColumns<C>>
 >;
 
 // ---------------------------------------------------------------------------
@@ -284,8 +284,8 @@ type EntryOf<R extends Registry, K> = K extends string
 type RowOf<R extends Registry, K> = EntryOf<R, K>['row'];
 type RelationsOf<R extends Registry, K> = EntryOf<R, K>['relations'];
 type ColumnKeys<R extends Registry, K> = StrKeys<RowOf<R, K>>;
-type RelationOf<R extends Registry, K, Rel> = RelationsOf<R, K>[Rel &
-  keyof RelationsOf<R, K>] extends infer D extends RelationDescriptor
+type RelationOf<R extends Registry, K, Rel> = RelationsOf<R, K>[Rel
+  & keyof RelationsOf<R, K>] extends infer D extends RelationDescriptor
   ? D
   : never;
 type TargetOf<R extends Registry, K, Rel> = RelationOf<R, K, Rel>['target'];
@@ -307,8 +307,8 @@ export type GraphExpression<R extends Registry, K> = {
   [Rel in StrKeys<RelationsOf<R, K>>]?:
     | true
     | (GraphExpression<R, TargetOf<R, K, Rel>> & {
-        $modify?: readonly EntryOf<R, TargetOf<R, K, Rel>>['modifiers'][];
-      });
+      $modify?: readonly EntryOf<R, TargetOf<R, K, Rel>>['modifiers'][];
+    });
 };
 
 type Whitespace = ' ' | '\n' | '\t' | '\r';
@@ -412,9 +412,9 @@ type GraphResult<R extends Registry, K, E> = {
   -readonly [Rel in StrKeys<E> & StrKeys<RelationsOf<R, K>>]: WrapRelation<
     KindOf<R, K, Rel>,
     Simplify<
-      RowOf<R, TargetOf<R, K, Rel>> &
-        ExtraOfRelation<R, K, Rel> &
-        (E[Rel] extends true ? {} : GraphResult<R, TargetOf<R, K, Rel>, E[Rel]>)
+      RowOf<R, TargetOf<R, K, Rel>>
+      & ExtraOfRelation<R, K, Rel>
+      & (E[Rel] extends true ? {} : GraphResult<R, TargetOf<R, K, Rel>, E[Rel]>)
     >
   >;
 };
@@ -438,11 +438,11 @@ type JoinedColumns<R extends Registry, K, E, Alias extends string = ''> = UnionT
   {
     [P in StrKeys<E> & StrKeys<RelationsOf<R, K>>]:
       | {
-          [C in ColumnKeys<R, TargetOf<R, K, P>> as `${Alias}${P}.${C}`]: RowOf<
-            R,
-            TargetOf<R, K, P>
-          >[C];
-        }
+        [C in ColumnKeys<R, TargetOf<R, K, P>> as `${Alias}${P}.${C}`]: RowOf<
+          R,
+          TargetOf<R, K, P>
+        >[C];
+      }
       | (E[P] extends true ? never : JoinedColumns<R, TargetOf<R, K, P>, E[P], `${Alias}${P}:`>);
   }[StrKeys<E> & StrKeys<RelationsOf<R, K>>]
 >;
@@ -484,8 +484,8 @@ type InitialState<R extends Registry, K> = {
   refs: (keyof RowOf<R, K> & string) | `${EntryOf<R, K>['table']}.${keyof RowOf<R, K> & string}`;
 };
 
-type QueryFor<R extends Registry, K> =
-  InitialState<R, K> extends infer S extends QueryState ? Query<S> : never;
+type QueryFor<R extends Registry, K>
+  = InitialState<R, K> extends infer S extends QueryState ? Query<S> : never;
 
 type With<S extends QueryState, P extends Partial<QueryState>> = Omit<S, keyof P> & P;
 
@@ -506,8 +506,8 @@ type E_<S extends QueryState> = EntryOf<R_<S>, K_<S>>;
 /** Any column reference the query understands: `age`, `persons.age`, `pets.name`. */
 export type ColumnRef<S extends QueryState> = S['refs'];
 
-type ColumnValue<S extends QueryState, P> =
-  P extends StrKeys<S['joined']>
+type ColumnValue<S extends QueryState, P>
+  = P extends StrKeys<S['joined']>
     ? S['joined'][P]
     : P extends `${E_<S>['table']}.${infer C}`
       ? RowOf<R_<S>, K_<S>>[C & keyof RowOf<R_<S>, K_<S>>]
@@ -524,20 +524,20 @@ type Selection<S extends QueryState, P> = P extends `${infer Ref} as ${infer Ali
 
 export type SelectArg<S extends QueryState> = S['refs'] | `${S['refs']} as ${string}`;
 
-export type ComparisonOperator =
-  | '='
-  | '!='
-  | '<>'
-  | '<'
-  | '<='
-  | '>'
-  | '>='
-  | 'like'
-  | 'not like'
-  | 'ilike'
-  | 'not ilike'
-  | 'is'
-  | 'is not';
+export type ComparisonOperator
+  = | '='
+    | '!='
+    | '<>'
+    | '<'
+    | '<='
+    | '>'
+    | '>='
+    | 'like'
+    | 'not like'
+    | 'ilike'
+    | 'not ilike'
+    | 'is'
+    | 'is not';
 
 /** Any typed query (structural brand, so concrete queries are assignable). */
 export interface AnyQuery {
@@ -606,8 +606,8 @@ type GraphState<S extends QueryState, X> = With<
   }
 >;
 
-type JoinState<S extends QueryState, X> =
-  JoinedColumns<R_<S>, K_<S>, ToExpressionObject<X>> extends infer J
+type JoinState<S extends QueryState, X>
+  = JoinedColumns<R_<S>, K_<S>, ToExpressionObject<X>> extends infer J
     ? With<S, { joined: S['joined'] & J; refs: S['refs'] | StrKeys<J> }>
     : never;
 
@@ -635,29 +635,29 @@ type OptionalKeys<T, F> = [F] extends [never]
 type InsertGraphInput<R extends Registry, K, Relate extends boolean, Filled = never> = OptionalKeys<
   EntryOf<R, K>['insert'],
   Filled
-> &
-  GraphRefs & {
-    [Rel in StrKeys<RelationsOf<R, K>>]?: WrapRelation<
-      KindOf<R, K, Rel>,
-      | (InsertGraphInput<R, TargetOf<R, K, Rel>, Relate, FilledOf<R, K, Rel>> &
-          Partial<ExtraOfRelation<R, K, Rel>>)
+>
+& GraphRefs & {
+  [Rel in StrKeys<RelationsOf<R, K>>]?: WrapRelation<
+    KindOf<R, K, Rel>,
+      | (InsertGraphInput<R, TargetOf<R, K, Rel>, Relate, FilledOf<R, K, Rel>>
+        & Partial<ExtraOfRelation<R, K, Rel>>)
       | GraphReference
       | (Relate extends true ? IdObject<R, TargetOf<R, K, Rel>> : never)
-    >;
-  };
+  >;
+};
 
 type UpsertGraphInput<R extends Registry, K, Filled = never> = (
   | OptionalKeys<EntryOf<R, K>['insert'], Filled>
   | (IdObject<R, K> & EntryOf<R, K>['patch'])
-) &
-  GraphRefs & {
-    [Rel in StrKeys<RelationsOf<R, K>>]?: WrapRelation<
-      KindOf<R, K, Rel>,
-      | (UpsertGraphInput<R, TargetOf<R, K, Rel>, FilledOf<R, K, Rel>> &
-          Partial<ExtraOfRelation<R, K, Rel>>)
+)
+& GraphRefs & {
+  [Rel in StrKeys<RelationsOf<R, K>>]?: WrapRelation<
+    KindOf<R, K, Rel>,
+      | (UpsertGraphInput<R, TargetOf<R, K, Rel>, FilledOf<R, K, Rel>>
+        & Partial<ExtraOfRelation<R, K, Rel>>)
       | GraphReference
-    >;
-  };
+  >;
+};
 
 type IdObject<R extends Registry, K> = Pick<
   RowOf<R, K>,
@@ -1162,8 +1162,8 @@ export function relations<
   Rels extends Record<string, ModelRelationSpec<any, any, any, any>>,
 >(owner: O, define: (r: ModelRelationBuilder<O>) => Rels): RelationDeclaration<O, Rels>;
 
-type Same<A, B> =
-  (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
+type Same<A, B>
+  = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
 type SameModel<A, B> = A extends { '~spec': infer SA }
   ? B extends { '~spec': infer SB }
     ? Same<SA, SB>
@@ -1175,26 +1175,26 @@ type KeyOfModel<M, T> = {
   [K in StrKeys<M>]: SameModel<M[K], T> extends true ? K : never;
 }[StrKeys<M>];
 
-type DeclarationOwnerKey<M, Decl> =
-  Decl extends RelationDeclaration<infer O, any> ? KeyOfModel<M, O> : never;
+type DeclarationOwnerKey<M, Decl>
+  = Decl extends RelationDeclaration<infer O, any> ? KeyOfModel<M, O> : never;
 
 type DeclarationDescriptors<M, K, D extends readonly unknown[]> = UnionToIntersection<
   {
     [I in keyof D]: D[I] extends RelationDeclaration<any, infer Rels>
       ? [DeclarationOwnerKey<M, D[I]>] extends [K]
-        ? [DeclarationOwnerKey<M, D[I]>] extends [never]
-          ? never
-          : {
-              [N in keyof Rels]: Rels[N] extends ModelRelationSpec<
-                infer Kind,
-                infer T,
-                infer X,
-                infer F
-              >
-                ? { kind: Kind; target: KeyOfModel<M, T>; extra: X; filled: F }
-                : never;
-            }
-        : never
+          ? [DeclarationOwnerKey<M, D[I]>] extends [never]
+              ? never
+              : {
+                  [N in keyof Rels]: Rels[N] extends ModelRelationSpec<
+                    infer Kind,
+                    infer T,
+                    infer X,
+                    infer F
+                  >
+                    ? { kind: Kind; target: KeyOfModel<M, T>; extra: X; filled: F }
+                    : never;
+                }
+          : never
       : never;
   }[number]
 >;
@@ -1226,29 +1226,29 @@ type ReferenceSites<M> = {
 
 type ReferenceDescriptors<M, K> = UnionToIntersection<
   | {
-      [P in StrKeys<ColumnsOfModel<M[K & keyof M]>>]: ReferenceAt<M, K, P> extends infer R extends
-        ColumnReference
-        ? {
-            [N in ForwardName<P, R>]: {
-              kind: 'one';
-              target: R['target'];
-              extra: {};
-              filled: never;
-            };
-          }
-        : never;
-    }[StrKeys<ColumnsOfModel<M[K & keyof M]>>]
+    [P in StrKeys<ColumnsOfModel<M[K & keyof M]>>]: ReferenceAt<M, K, P> extends infer R extends
+    ColumnReference
+      ? {
+          [N in ForwardName<P, R>]: {
+            kind: 'one';
+            target: R['target'];
+            extra: {};
+            filled: never;
+          };
+        }
+      : never;
+  }[StrKeys<ColumnsOfModel<M[K & keyof M]>>]
   | {
-      [Site in ReferenceSites<M>]: Site extends `${infer J}.${infer P}`
-        ? ReferenceAt<M, J, P> extends infer R extends ColumnReference
-          ? R['target'] extends K
-            ? R['inverse'] extends string
-              ? { [N in R['inverse']]: { kind: R['inverseKind']; target: J; extra: {}; filled: P } }
-              : never
+    [Site in ReferenceSites<M>]: Site extends `${infer J}.${infer P}`
+      ? ReferenceAt<M, J, P> extends infer R extends ColumnReference
+        ? R['target'] extends K
+          ? R['inverse'] extends string
+            ? { [N in R['inverse']]: { kind: R['inverseKind']; target: J; extra: {}; filled: P } }
             : never
           : never
-        : never;
-    }[ReferenceSites<M>]
+        : never
+      : never;
+  }[ReferenceSites<M>]
 >;
 
 // --- merging and checking ----------------------------------------------------
@@ -1258,21 +1258,20 @@ type ReferenceDescriptors<M, K> = UnionToIntersection<
  * checks run on this flat union: building per-model maps of definition sites and comparing
  * them pairwise was roughly cubic in the registry size (40 models hit TS2589).
  */
-type RelationDefinitions<M, Rels, D extends readonly unknown[]> =
-  | { [K in StrKeys<Rels>]: `${K}|${StrKeys<Rels[K]>}|keyed` }[StrKeys<Rels>]
-  | {
+type RelationDefinitions<M, Rels, D extends readonly unknown[]>
+  = | { [K in StrKeys<Rels>]: `${K}|${StrKeys<Rels[K]>}|keyed` }[StrKeys<Rels>]
+    | {
       [I in keyof D]: D[I] extends RelationDeclaration<any, infer RR>
         ? `${DeclarationOwnerKey<M, D[I]>}|${StrKeys<RR>}|relations:${I & string}`
         : never;
     }[number]
-  | {
+    | {
       [Site in ReferenceSites<M>]: Site extends `${infer J}.${infer P}`
         ? ReferenceAt<M, J, P> extends infer R extends ColumnReference
-          ?
-              | `${J}|${ForwardName<P, R>}|${Site}`
-              | (R['inverse'] extends string
-                  ? `${R['target']}|${R['inverse']}|${Site}:inverse`
-                  : never)
+          ? | `${J}|${ForwardName<P, R>}|${Site}`
+          | (R['inverse'] extends string
+            ? `${R['target']}|${R['inverse']}|${Site}:inverse`
+            : never)
           : never
         : never;
     }[ReferenceSites<M>];
@@ -1282,17 +1281,17 @@ type DuplicateErrors<
   All extends string = U,
 > = U extends `${infer K}|${infer N}|${string}`
   ? [Exclude<Extract<All, `${K}|${N}|${string}`>, U>] extends [never]
-    ? never
-    : `relation "${K}.${N}" is defined more than once`
+      ? never
+      : `relation "${K}.${N}" is defined more than once`
   : never;
 
+// Only models in the registry: for an unknown one (already reported by ReferenceErrors)
+// the lookup would yield every string as a "column".
 type ColumnNameErrors<
   M,
   U extends string,
 > = U extends `${infer K extends StrKeys<M>}|${infer N}|${string}`
-  ? // Only models in the registry: for an unknown one (already reported by ReferenceErrors)
-    // the lookup would yield every string as a "column".
-    N extends StrKeys<ColumnsOfModel<M[K]>>
+  ? N extends StrKeys<ColumnsOfModel<M[K]>>
     ? `relation "${K}.${N}" has the same name as a column`
     : never
   : never;
@@ -1301,18 +1300,17 @@ type ReferenceErrors<M> = {
   [Site in ReferenceSites<M>]: Site extends `${infer J}.${infer P}`
     ? ReferenceAt<M, J, P> extends infer R extends ColumnReference
       ? R['target'] extends StrKeys<M>
-        ?
-            | (R['column'] extends ColumnsOfInput<M[R['target']]>
-                ? never
-                : `${Site}.references(): unknown column "${R['target']}.${R['column']}"`)
-            | ([ForwardName<P, R>] extends [never]
-                ? `${Site}.references(): needs an \`as\` relation name`
-                : never)
-            | (R['inverse'] extends string
-                ? M[R['target']] extends AnyModelDefinition
-                  ? never
-                  : `${Site}.references(): "${R['target']}" is a classic model class and can't get the inverse relation "${R['inverse']}"`
-                : never)
+        ? | (R['column'] extends ColumnsOfInput<M[R['target']]>
+          ? never
+          : `${Site}.references(): unknown column "${R['target']}.${R['column']}"`)
+        | ([ForwardName<P, R>] extends [never]
+          ? `${Site}.references(): needs an \`as\` relation name`
+          : never)
+        | (R['inverse'] extends string
+          ? M[R['target']] extends AnyModelDefinition
+            ? never
+            : `${Site}.references(): "${R['target']}" is a classic model class and can't get the inverse relation "${R['inverse']}"`
+          : never)
         : `${Site}.references(): unknown model "${R['target']}"`
       : never
     : never;
@@ -1320,22 +1318,21 @@ type ReferenceErrors<M> = {
 
 type DeclarationErrors<M, D extends readonly unknown[]> = {
   [I in keyof D]: D[I] extends RelationDeclaration<any, infer Rels>
-    ?
-        | ([DeclarationOwnerKey<M, D[I]>] extends [never]
-            ? `relations() declared for a model that isn't part of this registry`
-            : never)
-        | {
-            [N in StrKeys<Rels>]: Rels[N] extends ModelRelationSpec<any, infer T, any, any>
-              ? [KeyOfModel<M, T>] extends [never]
-                ? `relation "${N}" points to a model that isn't part of this registry`
-                : never
-              : never;
-          }[StrKeys<Rels>]
+    ? | ([DeclarationOwnerKey<M, D[I]>] extends [never]
+      ? `relations() declared for a model that isn't part of this registry`
+      : never)
+    | {
+      [N in StrKeys<Rels>]: Rels[N] extends ModelRelationSpec<any, infer T, any, any>
+        ? [KeyOfModel<M, T>] extends [never]
+            ? `relation "${N}" points to a model that isn't part of this registry`
+            : never
+        : never;
+    }[StrKeys<Rels>]
     : never;
 }[number];
 
-type NameErrors<M, Rels, D extends readonly unknown[]> =
-  RelationDefinitions<M, Rels, D> extends infer U extends string
+type NameErrors<M, Rels, D extends readonly unknown[]>
+  = RelationDefinitions<M, Rels, D> extends infer U extends string
     ? DuplicateErrors<U> | ColumnNameErrors<M, U>
     : never;
 
@@ -1349,30 +1346,30 @@ export type RelationErrors<
   Rels = {},
 > = RelationErrorsOf<M, D, Rels>;
 
-type RelationErrorsOf<M, D extends readonly unknown[], Rels> =
-  | ReferenceErrors<M>
-  | DeclarationErrors<M, D>
-  | NameErrors<M, Rels, D>;
+type RelationErrorsOf<M, D extends readonly unknown[], Rels>
+  = | ReferenceErrors<M>
+    | DeclarationErrors<M, D>
+    | NameErrors<M, Rels, D>;
 
-type CheckRelations<M, Rels, D extends readonly unknown[]> =
-  RelationErrorsOf<M, D, Rels> extends infer E
+type CheckRelations<M, Rels, D extends readonly unknown[]>
+  = RelationErrorsOf<M, D, Rels> extends infer E
     ? [E] extends [never]
-      ? unknown
-      : { '~error': E }
+        ? unknown
+        : { '~error': E }
     : never;
 
 type RelationsOfModel<M, Rels, D extends readonly unknown[], K> = (K extends keyof Rels
   ? DescriptorsOf<Rels[K]>
-  : {}) &
-  DeclarationDescriptors<M, K, D> &
-  ReferenceDescriptors<M, K>;
+  : {})
+& DeclarationDescriptors<M, K, D>
+& ReferenceDescriptors<M, K>;
 
 export type RegistryOf<M extends ModelsInput, Rels, D extends readonly unknown[] = []> = {
   [K in StrKeys<M>]: M[K] extends { '~spec': infer Sp extends ModelSpec }
     ? Simplify<RelationsOfModel<M, Rels, D, K>> extends infer R extends Record<
-        string,
-        RelationDescriptor
-      >
+      string,
+      RelationDescriptor
+    >
       ? SpecEntry<Sp, R>
       : SpecEntry<Sp, {}>
     : M[K] extends ClassicModelClass
@@ -1381,8 +1378,8 @@ export type RegistryOf<M extends ModelsInput, Rels, D extends readonly unknown[]
 };
 
 export type Models<M extends ModelsInput, Rels, D extends readonly unknown[] = []> = {
-  [K in StrKeys<M>]: ModelHandle<RegistryOf<M, Rels, D>, K> &
-    (M[K] extends { '~spec': infer Sp extends ModelSpec }
+  [K in StrKeys<M>]: ModelHandle<RegistryOf<M, Rels, D>, K>
+    & (M[K] extends { '~spec': infer Sp extends ModelSpec }
       ? Pick<ModelDefinition<Sp>, 'columns' | 'idColumn' | '~spec'>
       : {});
 };
@@ -1432,8 +1429,8 @@ export type RowWithGraph<
   H extends AnyModelHandle,
   X extends RelationExpressionInput<HandleInfo<H>['r'], HandleInfo<H>['k']>,
 > = Simplify<
-  RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']> &
-    GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
+  RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
+  & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
 >;
 
 export class StandardSchemaValidator extends Validator {}

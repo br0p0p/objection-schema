@@ -1,28 +1,23 @@
 // Type tests for the schema-first `defineModel` / `defineModels` API.
-// Compiled by `npm run test:types`. Nothing here is executed.
+// Compiled by `pnpm run test:types`. Nothing here is executed.
 
-import { z } from 'zod';
-import * as v from 'valibot';
+import type { Insert, Patch, RelationErrors, Result, Row, RowWithGraph } from 'objection-schema';
 import { Model, raw, ref } from 'objection';
 import {
+  column,
   defineModel,
+  defineModelNames,
   defineModels,
   relations,
-  column,
-  defineModelNames,
-  unchecked,
   toQueryBuilder,
-  Row,
-  Insert,
-  Patch,
-  Result,
-  RowWithGraph,
-  RelationErrors,
+  unchecked,
 } from 'objection-schema';
+import * as v from 'valibot';
+import { z } from 'zod';
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
-type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Equal<A, B>
+  = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 function expectType<T extends true>() {}
 declare function run<Q extends PromiseLike<any>>(query: Q): Awaited<Q>;
 
@@ -43,9 +38,9 @@ const Person = defineModel({
     createdAt: column(z.date()).hasDefault(),
   },
   modifiers: {
-    adults: (q) => q.where('age', '>=', 18),
+    adults: q => q.where('age', '>=', 18),
     // @ts-expect-error unknown column inside a modifier
-    broken: (q) => q.where('agee', 1),
+    broken: q => q.where('agee', 1),
   },
 });
 
@@ -57,7 +52,7 @@ const Animal = defineModel({
     species: v.picklist(['dog', 'cat']),
     ownerId: v.nullable(v.number()),
   },
-  modifiers: { dogs: (q) => q.where('species', 'dog') },
+  modifiers: { dogs: q => q.where('species', 'dog') },
 });
 
 // A classic class-based model taking part in the same registry.
@@ -76,7 +71,7 @@ const PersonMovie = defineModel({
 const db = defineModels(
   { Person, Animal, Movie, PersonMovie },
   {
-    Person: (r) => ({
+    Person: r => ({
       pets: r.hasMany('Animal', { from: 'id', to: 'ownerId' }),
       parent: r.belongsToOne('Person', { from: 'parentId', to: 'id' }),
       children: r.hasMany('Person', { from: 'id', to: 'parentId' }),
@@ -91,7 +86,7 @@ const db = defineModels(
         to: 'id',
       }),
     }),
-    Animal: (r) => ({
+    Animal: r => ({
       owner: r.belongsToOne('Person', { from: 'ownerId', to: 'id' }),
     }),
   },
@@ -100,7 +95,7 @@ const db = defineModels(
 defineModels(
   { Person, Animal },
   {
-    Person: (r) => ({
+    Person: r => ({
       // @ts-expect-error `ownerIdd` is not a column of Animal
       pets: r.hasMany('Animal', { from: 'id', to: 'ownerIdd' }),
       // @ts-expect-error unknown target model
@@ -179,7 +174,7 @@ async function queries() {
   db.Person.query().where('persons.age', '>', 18).whereIn('id', [1, 2]).whereNull('parentId');
   db.Person.query()
     .where('firstName', ref('lastName'))
-    .where((q) => q.where('age', 1).orWhere('age', 2));
+    .where(q => q.where('age', 1).orWhere('age', 2));
   // @ts-expect-error status is an enum
   db.Person.query().where('status', 'deleted');
   // @ts-expect-error age is a number
@@ -250,13 +245,13 @@ async function queries() {
   // modifyGraph paths come from the previous expression; the callback is typed for the target.
   db.Person.query()
     .withGraphFetched('pets.owner')
-    .modifyGraph('pets', (q) => q.where('species', 'dog'))
-    .modifyGraph('pets.owner', (q) => q.where('age', '>', 1));
+    .modifyGraph('pets', q => q.where('species', 'dog'))
+    .modifyGraph('pets.owner', q => q.where('age', '>', 1));
   const petsQuery = db.Person.query().withGraphFetched('pets');
   // @ts-expect-error path not in the graph expression
   petsQuery.modifyGraph('parent', () => {});
   // @ts-expect-error callback is typed for Animal
-  petsQuery.modifyGraph('pets', (q) => q.where('firstName', 'x'));
+  petsQuery.modifyGraph('pets', q => q.where('firstName', 'x'));
 
   // joins expose `relation.column` (and `parent:pets.column` for nested) references
   const joined = await db.Person.query()
@@ -398,7 +393,7 @@ const Pet = defineModel({
 const Vet = defineModel({ table: 'vets', columns: { id: z.number(), name: z.string() } });
 
 // Colocated declarations target models directly.
-const ownerRelations = relations(Owner, (r) => ({
+const ownerRelations = relations(Owner, r => ({
   movies: r.manyToMany(Movie, {
     from: 'id',
     to: 'id',
@@ -407,12 +402,12 @@ const ownerRelations = relations(Owner, (r) => ({
   // @ts-expect-error `ownerIdd` is not a column of Pet
   typo: r.hasMany(Pet, { from: 'id', to: 'ownerIdd' }),
 }));
-const vetRelations = relations(Vet, (r) => ({
+const vetRelations = relations(Vet, r => ({
   colleagues: r.hasMany(Vet, { from: 'id', to: 'id' }),
 }));
 
 const zoo = defineModels({ Owner, Pet, Vet, Movie }, [ownerRelations, vetRelations], {
-  Vet: (r) => ({
+  Vet: r => ({
     owners: r.manyToMany('Owner', {
       from: 'id',
       to: 'id',
@@ -455,20 +450,17 @@ async function relationStyles() {
 
 // ----- Errors: each of these is a compile error on the `defineModels` call -----
 
-const ownerPetsRelation = relations(Owner, (r) => ({
+const ownerPetsRelation = relations(Owner, r => ({
   pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
 }));
-// prettier-ignore
 // @ts-expect-error relation "Owner.pets" is defined more than once (references() inverse + relations())
 defineModels({ Owner, Pet, Vet }, [ownerPetsRelation]);
 
-// prettier-ignore
 // @ts-expect-error relation "Vet.colleagues" is defined more than once (relations() + keyed)
-defineModels({ Owner, Pet, Vet }, [vetRelations], { Vet: (r) => ({ colleagues: r.hasMany('Vet', { from: 'id', to: 'id' }) }) });
+defineModels({ Owner, Pet, Vet }, [vetRelations], { Vet: r => ({ colleagues: r.hasMany('Vet', { from: 'id', to: 'id' }) }) });
 
-// prettier-ignore
 // @ts-expect-error relation "Vet.name" has the same name as a column
-defineModels({ Owner, Pet, Vet }, { Vet: (r) => ({ name: r.hasMany('Pet', { from: 'id', to: 'vetId' }) }) });
+defineModels({ Owner, Pet, Vet }, { Vet: r => ({ name: r.hasMany('Pet', { from: 'id', to: 'vetId' }) }) });
 
 // @ts-expect-error Pet.vetId.references(): unknown model "Vet" (missing from the registry)
 defineModels({ Owner, Pet });
@@ -497,7 +489,7 @@ const InverseOnClassic = defineModel({
 // @ts-expect-error "Movie" is a classic model class and can't get the inverse relation "links"
 defineModels({ Movie, InverseOnClassic });
 
-const strangerRelations = relations(Vet, (r) => ({
+const strangerRelations = relations(Vet, r => ({
   x: r.hasMany(Vet, { from: 'id', to: 'id' }),
 }));
 // @ts-expect-error relations() declared for a model that isn't part of this registry
@@ -541,7 +533,7 @@ expectType<
 expectType<
   Equal<
     ErrorsOf<{ Owner: typeof Owner; Pet: typeof Raw }, [typeof strangerRelations]>,
-    | "relations() declared for a model that isn't part of this registry"
+    | 'relations() declared for a model that isn\'t part of this registry'
     | 'relation "x" points to a model that isn\'t part of this registry'
   >
 >();

@@ -2,8 +2,6 @@
 
 const expect = require('expect.js');
 const Knex = require('knex');
-const { z } = require('zod');
-const v = require('valibot');
 const { Model, ValidationError, transaction, mixin } = require('objection');
 const {
   defineModel,
@@ -13,6 +11,8 @@ const {
   defineModelNames,
   unchecked,
 } = require('objection-schema');
+const v = require('valibot');
+const { z } = require('zod');
 
 describe('objection-schema', () => {
   let knex;
@@ -48,8 +48,8 @@ describe('objection-schema', () => {
       status: z.enum(['active', 'inactive']).default('active'),
     },
     modifiers: {
-      adults: (q) => q.where('age', '>=', 18),
-      orderByName: (q) => q.orderBy('firstName'),
+      adults: q => q.where('age', '>=', 18),
+      orderByName: q => q.orderBy('firstName'),
     },
   });
 
@@ -68,7 +68,7 @@ describe('objection-schema', () => {
   const db = defineModels(
     { Person, Animal, Movie },
     {
-      Person: (r) => ({
+      Person: r => ({
         pets: r.hasMany('Animal', { from: 'id', to: 'ownerId' }),
         parent: r.belongsToOne('Person', { from: 'parentId', to: 'id' }),
         children: r.hasMany('Person', { from: 'id', to: 'parentId' }),
@@ -78,7 +78,7 @@ describe('objection-schema', () => {
           to: 'id',
         }),
       }),
-      Animal: (r) => ({
+      Animal: r => ({
         owner: r.belongsToOne('Person', { from: 'ownerId', to: 'id' }),
       }),
     },
@@ -141,7 +141,8 @@ describe('objection-schema', () => {
       try {
         await Person.query().insert({ firstName: '', age: -1 });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(err).to.be.a(ValidationError);
         expect(err.type).to.equal('ModelValidation');
         expect(err.statusCode).to.equal(400);
@@ -157,7 +158,8 @@ describe('objection-schema', () => {
       try {
         Person.validate({ firstName: 'a', lastName: 'b', address: { street: 1 } });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(Object.keys(err.data).sort()).to.eql(['address.city', 'address.street']);
       }
     });
@@ -171,7 +173,8 @@ describe('objection-schema', () => {
       try {
         await Person.query().findById(id).patch({ age: -5 });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(Object.keys(err.data)).to.eql(['age']);
       }
     });
@@ -183,7 +186,8 @@ describe('objection-schema', () => {
       try {
         await Animal.query().insert({ name: '', species: 'cow' });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(Object.keys(err.data).sort()).to.eql(['name', 'species']);
         expect(err.data.species[0].keyword).to.equal('valibot');
       }
@@ -283,13 +287,13 @@ describe('objection-schema', () => {
       await seed();
 
       const people = await db.Person.query().withGraphJoined('pets').where('pets.species', 'dog');
-      expect(people.map((it) => it.firstName)).to.eql(['Child']);
+      expect(people.map(it => it.firstName)).to.eql(['Child']);
 
       const names = await db.Person.query()
         .joinRelated('pets')
         .select('persons.firstName', 'pets.name as petName');
       expect(names).to.eql(
-        [{ firstName: 'Child', petName: 'Rex' }].map((it) =>
+        [{ firstName: 'Child', petName: 'Rex' }].map(it =>
           Object.assign(new Person.modelClass(), it),
         ),
       );
@@ -299,7 +303,7 @@ describe('objection-schema', () => {
       const parent = await seed();
 
       const pets = await db.Person.relatedQuery('pets').for(parent.children[0].id);
-      expect(pets.map((it) => it.name)).to.eql(['Rex']);
+      expect(pets.map(it => it.name)).to.eql(['Rex']);
 
       // Results are real model instances, so classic instance APIs are available.
       const [child] = await db.Person.query().where('firstName', 'Child');
@@ -330,7 +334,7 @@ describe('objection-schema', () => {
 
       const result = await db.Person.query().findById(child.id).withGraphFetched('pets');
       expect(result.firstName).to.equal('Renamed');
-      expect(result.pets.map((it) => it.name).sort()).to.eql(['Rex II', 'Tweety']);
+      expect(result.pets.map(it => it.name).sort()).to.eql(['Rex II', 'Tweety']);
     });
   });
 
@@ -371,12 +375,12 @@ describe('objection-schema', () => {
     it('combines references(), relations() and the keyed object', async () => {
       const { Owner, Pet } = makeModels();
 
-      const ownerRelations = relations(Owner, (r) => ({
+      const ownerRelations = relations(Owner, r => ({
         children: r.hasMany(Owner, { from: 'id', to: 'parentId' }),
       }));
 
       const db = defineModels({ Owner, Pet }, [ownerRelations], {
-        Owner: (r) => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }),
+        Owner: r => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }),
       });
 
       expect(Object.keys(Owner.modelClass.getRelations()).sort()).to.eql([
@@ -437,7 +441,7 @@ describe('objection-schema', () => {
 
     it('relations() declarations can target classic models', async () => {
       const { Owner, Pet } = makeModels();
-      const ownerRelations = relations(Owner, (r) => ({
+      const ownerRelations = relations(Owner, r => ({
         movies: r.manyToMany(Movie, {
           from: 'id',
           through: { table: 'persons_movies', from: 'personId', to: 'movieId' },
@@ -494,7 +498,7 @@ describe('objection-schema', () => {
 
       it('same relation name from two sources', () => {
         const { Owner, Pet } = makeModels();
-        const ownerRelations = relations(Owner, (r) => ({
+        const ownerRelations = relations(Owner, r => ({
           pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
         }));
 
@@ -506,14 +510,14 @@ describe('objection-schema', () => {
 
       it('same relation name in relations() and the keyed object', () => {
         const { Owner, Pet } = makeModels();
-        const ownerRelations = relations(Owner, (r) => ({
+        const ownerRelations = relations(Owner, r => ({
           parent: r.belongsToOne(Owner, { from: 'parentId', to: 'id' }),
         }));
 
         throws(
           () =>
             defineModels({ Owner, Pet }, [ownerRelations], {
-              Owner: (r) => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }),
+              Owner: r => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }),
             }),
           /relation "Owner.parent" is defined more than once: relations\(Owner\) and defineModels relations for Owner/,
         );
@@ -526,7 +530,7 @@ describe('objection-schema', () => {
             defineModels(
               { Owner, Pet },
               {
-                Owner: (r) => ({ firstName: r.hasMany('Pet', { from: 'id', to: 'ownerId' }) }),
+                Owner: r => ({ firstName: r.hasMany('Pet', { from: 'id', to: 'ownerId' }) }),
               },
             ),
           /relation "Owner.firstName" .* same name as a column/,
@@ -534,7 +538,7 @@ describe('objection-schema', () => {
       });
 
       it('invalid references()', () => {
-        const columns = (ref) => ({ id: z.number(), ownerId: ref });
+        const columns = ref => ({ id: z.number(), ownerId: ref });
         const Owner = defineModel({ table: 'persons', columns: { id: z.number() } });
 
         const unknownModel = defineModel({
@@ -576,7 +580,7 @@ describe('objection-schema', () => {
         throws(
           () =>
             defineModels({ Owner, Pet }, [
-              relations(Owner, (r) => ({ x: r.hasMany(Stranger, { from: 'id', to: 'id' }) })),
+              relations(Owner, r => ({ x: r.hasMany(Stranger, { from: 'id', to: 'id' }) })),
             ]),
           /points to a model that isn't part of this registry/,
         );
@@ -591,7 +595,8 @@ describe('objection-schema', () => {
           await db.Person.query(trx).insert({ firstName: 'T', lastName: 'X' });
           throw new Error('rollback');
         });
-      } catch (err) {
+      }
+      catch (err) {
         expect(err.message).to.equal('rollback');
       }
 
@@ -605,10 +610,10 @@ describe('objection-schema', () => {
     });
 
     it('plugins via a custom base model', async () => {
-      const timestamps = (Base) =>
+      const timestamps = Base =>
         class extends Base {
           $beforeInsert(ctx) {
-            this.lastName = this.lastName + ' (stamped)';
+            this.lastName = `${this.lastName} (stamped)`;
             return super.$beforeInsert(ctx);
           }
         };

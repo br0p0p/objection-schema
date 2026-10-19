@@ -6,18 +6,18 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   runtime:
     name: Runtime (Stryker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run test:mutations
+      - uses: ./.github/actions/setup
+      - run: pnpm run test:mutations
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -29,9 +29,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run test:mutations:types
+      - uses: ./.github/actions/setup
+      - run: pnpm run test:mutations:types

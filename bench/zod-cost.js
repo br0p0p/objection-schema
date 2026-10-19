@@ -1,19 +1,20 @@
 'use strict';
+const { execFileSync } = require('node:child_process');
 // What does validating with zod cost? Compared against no validation, Ajv (classic
 // jsonSchema) and valibot, for a simple and a "realistic" schema (formats, regex,
 // refinements, transforms). Each case runs in a fresh process over interleaved rounds;
 // per process we keep the fastest iteration, the table shows the median of those.
 // Run: node bench/zod-cost.js
-const { execFileSync } = require('child_process');
+const process = require('node:process');
 
 const ROWS = 20000;
 const ROUNDS = Number(process.env.ROUNDS || 5);
 
 function makeModels(kind) {
-  const { z } = require('zod');
-  const v = require('valibot');
   const { Model } = require('objection');
   const { defineModel, column, unchecked } = require('objection-schema');
+  const v = require('valibot');
+  const { z } = require('zod');
 
   const simple = {
     zod: () => ({
@@ -60,7 +61,7 @@ function makeModels(kind) {
         z
           .array(z.string().min(1))
           .max(10)
-          .refine((t) => new Set(t).size === t.length),
+          .refine(t => new Set(t).size === t.length),
       ).json(),
     }),
     valibot: () => ({
@@ -76,7 +77,7 @@ function makeModels(kind) {
         v.pipe(
           v.array(v.pipe(v.string(), v.minLength(1))),
           v.maxLength(10),
-          v.check((t) => new Set(t).size === t.length),
+          v.check(t => new Set(t).size === t.length),
         ),
       ).json(),
     }),
@@ -115,7 +116,7 @@ function makeModels(kind) {
 
   if (lib === 'none') {
     const columns = Object.fromEntries(
-      Object.keys(schema.ajv.properties).map((k) => [k, unchecked()]),
+      Object.keys(schema.ajv.properties).map(k => [k, unchecked()]),
     );
     return defineModel({ table: 'people', columns }).modelClass;
   }
@@ -160,10 +161,10 @@ async function child(kind) {
   const Model = makeModels(kind);
   const rows = inputs(kind);
   const result = {
-    insert: await bestOf(() => rows.map((it) => Model.fromJson(it)), 15),
+    insert: await bestOf(() => rows.map(it => Model.fromJson(it)), 15),
     patch: await bestOf(
       () =>
-        rows.map((it) => Model.fromJson({ age: it.age, lastName: it.lastName }, { patch: true })),
+        rows.map(it => Model.fromJson({ age: it.age, lastName: it.lastName }, { patch: true })),
       15,
     ),
   };
@@ -207,17 +208,17 @@ function startup() {
     );
     return Number(out);
   };
-  const median = (f) => [0, 1, 2, 3, 4].map(f).sort((a, b) => a - b)[2];
+  const median = f => [0, 1, 2, 3, 4].map(f).sort((a, b) => a - b)[2];
 
   console.log('\nStartup (median of 5 fresh processes):');
   console.log(
-    `  require('zod')                      ${median(() => time("require('zod')")).toFixed(1)} ms`,
+    `  require('zod')                      ${median(() => time('require(\'zod\')')).toFixed(1)} ms`,
   );
   console.log(
-    `  require('valibot')                  ${median(() => time("require('valibot')")).toFixed(1)} ms`,
+    `  require('valibot')                  ${median(() => time('require(\'valibot\')')).toFixed(1)} ms`,
   );
   console.log(
-    `  require('ajv') + ajv-formats        ${median(() => time("require('ajv');require('ajv-formats')")).toFixed(1)} ms`,
+    `  require('ajv') + ajv-formats        ${median(() => time('require(\'ajv\');require(\'ajv-formats\')')).toFixed(1)} ms`,
   );
   const define = `const {z}=require('zod');const {defineModel,column}=require('objection-schema');const t0=process.hrtime.bigint();for(let i=0;i<100;i++)defineModel({table:'t'+i,columns:{id:column(z.number()).generated(),a:z.string().min(1),b:z.string().email(),c:z.number().int().nullable().optional(),d:z.enum(['x','y']).default('x'),e:z.string(),f:z.boolean(),g:z.date(),h:z.string().url().optional(),i:z.number()}});process.stdout.write(String(Number(process.hrtime.bigint()-t0)/1e6));process.exit()`;
   const out = median(() =>
@@ -246,7 +247,7 @@ function report() {
       (samples[kind] = samples[kind] || []).push(JSON.parse(out));
     }
   }
-  const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  const median = xs => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
   const label = { none: 'no validation', ajv: 'classic (Ajv)', zod: 'zod', valibot: 'valibot' };
 
   console.log(
@@ -256,8 +257,8 @@ function report() {
   console.log('|---|---|---:|---:|---:|---:|');
   for (const kind of kinds) {
     const [schema, lib] = kind.split(':');
-    const m = (k) =>
-      samples[kind][0][k] === undefined ? null : median(samples[kind].map((s) => s[k]));
+    const m = k =>
+      samples[kind][0][k] === undefined ? null : median(samples[kind].map(s => s[k]));
     const ins = m('insert');
     const db = m('1k sqlite inserts');
     console.log(
@@ -269,6 +270,7 @@ function report() {
 
 if (process.argv[2]) {
   child(process.argv[2]);
-} else {
+}
+else {
   report();
 }

@@ -1,9 +1,10 @@
+import type { Row } from 'objection-schema';
+import { column, defineModel, defineModels, relations } from 'objection-schema';
 // Types through the ES module entry point (`import` condition → typings/index.d.mts).
 import { z } from 'zod';
-import { defineModel, defineModels, column, relations, type Row } from 'objection-schema';
 
-type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Equal<A, B>
+  = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 function expectType<T extends true>() {}
 
 const Item = defineModel({

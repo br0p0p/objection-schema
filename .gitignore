@@ -3,3 +3,5 @@ node_modules/
 reports/
 .stryker-tmp/
 coverage/
+.claude/settings.local.json
+package-lock.json

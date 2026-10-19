@@ -5,8 +5,6 @@
 
 const expect = require('expect.js');
 const Knex = require('knex');
-const { z } = require('zod');
-const v = require('valibot');
 const { Model, ValidationError, raw } = require('objection');
 const {
   defineModel,
@@ -17,6 +15,8 @@ const {
   toQueryBuilder,
   isModelDefinition,
 } = require('objection-schema');
+const v = require('valibot');
+const { z } = require('zod');
 
 describe('features', () => {
   let knex;
@@ -79,18 +79,19 @@ describe('features', () => {
   describe('hooks', () => {
     it('calls every hook with the row, and the options where objection passes them', async () => {
       const calls = [];
-      const record =
-        (name) =>
-        (row, ...args) => {
-          const last = args[args.length - 1];
-          calls.push({
-            name,
-            row: { ...row },
-            args: args.length,
-            ctx: !!last && 'transaction' in last,
-          });
-          if (args.length === 2) calls[calls.length - 1].patch = args[0].patch;
-        };
+      const record
+        = name =>
+          (row, ...args) => {
+            const last = args[args.length - 1];
+            calls.push({
+              name,
+              row: { ...row },
+              args: args.length,
+              ctx: !!last && 'transaction' in last,
+            });
+            if (args.length === 2)
+              calls[calls.length - 1].patch = args[0].patch;
+          };
 
       const Owner = defineModel({
         table: 'owners',
@@ -111,7 +112,7 @@ describe('features', () => {
       await owner.$query().patch({ name: 'B' });
       await owner.$query().delete();
 
-      expect(calls.map((it) => it.name)).to.eql([
+      expect(calls.map(it => it.name)).to.eql([
         'beforeInsert',
         'afterInsert',
         'afterFind',
@@ -122,7 +123,7 @@ describe('features', () => {
       ]);
 
       // (row, ctx) hooks get 1 extra argument, (row, options, ctx) hooks get 2.
-      const byName = Object.fromEntries(calls.map((it) => [it.name, it]));
+      const byName = Object.fromEntries(calls.map(it => [it.name, it]));
       for (const name of [
         'beforeInsert',
         'afterInsert',
@@ -148,7 +149,7 @@ describe('features', () => {
         columns: ownerColumns(),
         hooks: {
           async beforeInsert(row) {
-            await new Promise((resolve) => setTimeout(resolve, 5));
+            await new Promise(resolve => setTimeout(resolve, 5));
             if (row.name === 'taken') {
               throw new ValidationError({
                 type: 'ModelValidation',
@@ -163,7 +164,8 @@ describe('features', () => {
       try {
         await Owner.query().insert({ name: 'taken' });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(err).to.be.a(ValidationError);
         expect(err.data.name[0].message).to.be('is taken');
       }
@@ -220,10 +222,10 @@ describe('features', () => {
           species: z.string(),
           ownerId: z.number().nullable().optional(),
         },
-        modifiers: { dogs: (q) => q.where('species', 'dog') },
+        modifiers: { dogs: q => q.where('species', 'dog') },
       });
       const db = defineModels({ Owner, Pet }, [
-        relations(Owner, (r) => ({
+        relations(Owner, r => ({
           pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
           dogs: r.hasMany(Pet, { from: 'id', to: 'ownerId' }, petRelationOptions),
         })),
@@ -232,7 +234,7 @@ describe('features', () => {
     }
 
     for (const [label, modify] of [
-      ['function', (q) => q.where('species', 'dog')],
+      ['function', q => q.where('species', 'dog')],
       ['modifier name', 'dogs'],
     ]) {
       it(`\`modify\` (${label}) filters the relation`, async () => {
@@ -247,7 +249,7 @@ describe('features', () => {
 
         const fetched = await db.Owner.query().findById(owner.id).withGraphFetched('[pets, dogs]');
         expect(fetched.pets).to.have.length(2);
-        expect(fetched.dogs.map((it) => it.name)).to.eql(['Rex']);
+        expect(fetched.dogs.map(it => it.name)).to.eql(['Rex']);
       });
     }
 
@@ -287,7 +289,7 @@ describe('features', () => {
       const db = defineModels(
         { Owner, Pet, Film },
         {
-          Owner: (r) => ({
+          Owner: r => ({
             pet: r.hasOne('Pet', { from: 'id', to: 'ownerId' }),
             film: r.hasOneThrough('Film', {
               from: 'id',
@@ -363,10 +365,10 @@ describe('features', () => {
         },
       });
       const db = defineModels({ Account, Membership }, [
-        relations(Account, (r) => ({
+        relations(Account, r => ({
           members: r.hasMany(Membership, { from: ['tenant', 'id'], to: ['tenant', 'accountId'] }),
         })),
-        relations(Membership, (r) => ({
+        relations(Membership, r => ({
           account: r.belongsToOne(Account, { from: ['tenant', 'accountId'], to: ['tenant', 'id'] }),
         })),
       ]);
@@ -378,8 +380,8 @@ describe('features', () => {
 
       const b1 = await db.Account.query().findById(['b', 1]).withGraphFetched('members');
       expect(b1.name).to.be('B1');
-      expect(b1.members.map((it) => it.role).sort()).to.eql(['editor', 'viewer']);
-      expect(b1.members.every((it) => it.tenant === 'b' && it.accountId === 1)).to.be(true);
+      expect(b1.members.map(it => it.role).sort()).to.eql(['editor', 'viewer']);
+      expect(b1.members.every(it => it.tenant === 'b' && it.accountId === 1)).to.be(true);
 
       const [admin] = await db.Membership.query()
         .where('role', 'admin')
@@ -432,7 +434,8 @@ describe('features', () => {
           ],
         });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(err).to.be.a(ValidationError);
         expect(Object.keys(err.data)).to.eql(['pets[1].name']);
       }
@@ -453,7 +456,8 @@ describe('features', () => {
       try {
         Owner.validate({ name: 'A', address: { city: 1, geo: { lat: 'x' } } });
         expect().fail('should have thrown');
-      } catch (err) {
+      }
+      catch (err) {
         expect(Object.keys(err.data).sort()).to.eql(['address.city', 'address.geo.lat']);
         expect(err.data['address.city'][0].params.issue.message).to.be.a('string');
       }
@@ -462,11 +466,11 @@ describe('features', () => {
 
   describe('function schemas', () => {
     it('accepts Standard Schemas that are functions (like arktype types)', () => {
-      const positive = Object.assign((value) => value, {
+      const positive = Object.assign(value => value, {
         '~standard': {
           version: 1,
           vendor: 'fn',
-          validate: (value) =>
+          validate: value =>
             typeof value === 'number' && value > 0
               ? { value }
               : { issues: [{ message: 'must be positive' }] },
@@ -583,7 +587,7 @@ describe('features', () => {
         () => {
           const db = defineModels(
             { Owner: Owner() },
-            { Owner: (r) => ({ x: r.hasMany('Ownr', { from: 'id', to: 'id' }) }) },
+            { Owner: r => ({ x: r.hasMany('Ownr', { from: 'id', to: 'id' }) }) },
           );
           db.Owner.modelClass.getRelations();
         },
@@ -611,7 +615,7 @@ describe('features', () => {
       const own = Owner();
       expect(() =>
         defineModels({ Owner: own }, [
-          relations(own, (r) => ({ x: r.hasMany(Classic, { from: 'id', to: 'id' }) })),
+          relations(own, r => ({ x: r.hasMany(Classic, { from: 'id', to: 'id' }) })),
         ]),
       ).to.throwError(/points to a model that isn't part of this registry \(Classic\)/);
     });
@@ -623,7 +627,7 @@ describe('features', () => {
 
       const instance = Owner.fromJson({ name: 'A' });
       expect(instance).to.be.a(Owner.modelClass);
-      expect(() => Owner.fromJson({ name: '' })).to.throwError((err) =>
+      expect(() => Owner.fromJson({ name: '' })).to.throwError(err =>
         expect(err).to.be.a(ValidationError),
       );
 
@@ -632,7 +636,7 @@ describe('features', () => {
       const names = await Owner.query()
         .where(Owner.ref('name'), '!=', 'A')
         .select(raw('upper(??) as up', ['name']));
-      expect(names.map((it) => it.up)).to.eql(['B']);
+      expect(names.map(it => it.up)).to.eql(['B']);
 
       const query = Owner.query();
       expect(toQueryBuilder(query)).to.be(query);

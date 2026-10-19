@@ -9,11 +9,12 @@
 // - an inserted row reads back as it was validated,
 // - relation merging matches an independent model of the rules for random registries.
 
+const assert = require('node:assert');
 const expect = require('expect.js');
 const fc = require('fast-check');
 const Knex = require('knex');
-const { z } = require('zod');
 const { defineModel, defineModels, relations, column } = require('objection-schema');
+const { z } = require('zod');
 
 const NUM_RUNS = Number(process.env.FC_NUM_RUNS || 200);
 
@@ -36,9 +37,12 @@ const Person = defineModel({
   table: 'people',
   columns: Object.fromEntries(
     Object.entries(shape).map(([prop, { schema, meta }]) => {
-      if (meta === 'generated') return [prop, column(schema).generated()];
-      if (meta === 'hasDefault') return [prop, column(schema).hasDefault()];
-      if (meta === 'json') return [prop, column(schema).json()];
+      if (meta === 'generated')
+        return [prop, column(schema).generated()];
+      if (meta === 'hasDefault')
+        return [prop, column(schema).hasDefault()];
+      if (meta === 'json')
+        return [prop, column(schema).json()];
       return [prop, schema];
     }),
   ),
@@ -76,8 +80,8 @@ const junk = fc.oneof(
 
 const valid = {
   id: fc.integer({ min: 1, max: 1e6 }),
-  firstName: fc.string({ minLength: 1, maxLength: 8 }).map((s) => ` ${s.replace(/\s/g, 'x')} `),
-  email: fc.string({ maxLength: 8 }).map((s) => s + 'A@B.C'),
+  firstName: fc.string({ minLength: 1, maxLength: 8 }).map(s => ` ${s.replace(/\s/g, 'x')} `),
+  email: fc.string({ maxLength: 8 }).map(s => `${s}A@B.C`),
   age: fc.oneof(fc.integer({ min: 0, max: 120 }), fc.constant(null)),
   status: fc.constantFrom('active', 'inactive'),
   address: fc.oneof(
@@ -98,7 +102,7 @@ const MISSING = Symbol('missing');
 const anyInput = fc
   .record({
     ...Object.fromEntries(
-      Object.keys(shape).map((prop) => [
+      Object.keys(shape).map(prop => [
         prop,
         fc.oneof(
           { arbitrary: valid[prop], weight: 12 },
@@ -109,12 +113,12 @@ const anyInput = fc
     ),
     extra: fc.oneof(fc.constant(MISSING), fc.string({ maxLength: 4 })),
   })
-  .map((input) =>
+  .map(input =>
     Object.fromEntries(Object.entries(input).filter(([, value]) => value !== MISSING)),
   );
 
 const validInput = fc.record(
-  Object.fromEntries(Object.keys(shape).map((prop) => [prop, valid[prop]])),
+  Object.fromEntries(Object.keys(shape).map(prop => [prop, valid[prop]])),
   { requiredKeys: ['firstName', 'email', 'address'] },
 );
 
@@ -123,8 +127,10 @@ const validInput = fc.record(
 function outcome(fn) {
   try {
     return { ok: true, value: dropUndefined(fn()) };
-  } catch (err) {
-    if (!err.data) throw err;
+  }
+  catch (err) {
+    if (!err.data)
+      throw err;
     return { ok: false, keys: Object.keys(err.data).sort() };
   }
 }
@@ -133,14 +139,14 @@ function oracleOutcome(input) {
   const result = oracle.safeParse(input);
   return result.success
     ? { ok: true, value: dropUndefined(result.data) }
-    : { ok: false, keys: [...new Set(result.error.issues.map((it) => it.path.join('.')))].sort() };
+    : { ok: false, keys: [...new Set(result.error.issues.map(it => it.path.join('.')))].sort() };
 }
 
 function dropUndefined(obj) {
   return Object.fromEntries(Object.entries({ ...obj }).filter(([, value]) => value !== undefined));
 }
 
-const clone = (value) => (value === undefined ? undefined : structuredClone(value));
+const clone = value => (value === undefined ? undefined : structuredClone(value));
 
 // --- properties ----------------------------------------------------------------------
 
@@ -150,8 +156,8 @@ describe('properties', () => {
       // Guards the generator itself: a property over inputs that are (almost) always
       // invalid would never check successful output.
       const samples = fc.sample(anyInput, { numRuns: 2000, seed: 42 });
-      const validShare =
-        samples.filter((it) => oracle.safeParse(it).success).length / samples.length;
+      const validShare
+        = samples.filter(it => oracle.safeParse(it).success).length / samples.length;
       expect(validShare).to.be.within(0.2, 0.8);
     });
 
@@ -170,7 +176,10 @@ describe('properties', () => {
           const before = clone(input);
           outcome(() => Person.modelClass.fromJson(input));
           outcome(() => Person.modelClass.fromJson(input, { patch: true }));
-          expect(input).to.eql(before);
+          // Both sides go through `clone` so that only values are compared (generated
+          // dictionaries have null prototypes), and with `deepStrictEqual` rather than
+          // expect.js `eql`, which treats NaN (a generated junk value) as unequal to itself.
+          assert.deepStrictEqual(clone(input), before);
         }),
         { numRuns: NUM_RUNS },
       );
@@ -192,7 +201,7 @@ describe('properties', () => {
           const result = outcome(() => Person.validate(input, { patch: true }));
           const given = Object.keys(dropUndefined(input));
           const invalid = given.filter(
-            (prop) => shape[prop] && !shape[prop].schema.safeParse(input[prop]).success,
+            prop => shape[prop] && !shape[prop].schema.safeParse(input[prop]).success,
           );
 
           if (invalid.length) {
@@ -201,7 +210,8 @@ describe('properties', () => {
             for (const key of result.keys) {
               expect(invalid).to.contain(key.split('.')[0]);
             }
-          } else {
+          }
+          else {
             expect(result.ok).to.be(true);
             expect(Object.keys(result.value).sort()).to.eql(given.sort());
           }
@@ -296,8 +306,10 @@ describe('properties', () => {
         spec.references.forEach((ref, j) => {
           if (ref.from === i) {
             const options = {};
-            if (ref.as) options.as = ref.as;
-            if (ref.inverse) options.inverse = { name: ref.inverse, kind: ref.inverseKind };
+            if (ref.as)
+              options.as = ref.as;
+            if (ref.inverse)
+              options.inverse = { name: ref.inverse, kind: ref.inverseKind };
             columns[`fk${j}Id`] = column(z.number()).references(`M${ref.to}`, 'id', options);
           }
         });
@@ -309,8 +321,8 @@ describe('properties', () => {
         models[`M${i}`] = defineModel({ name: `M${i}`, table: `t${i}`, columns: columnsOf(i) });
       }
 
-      const declarations = spec.declarations.map((d) =>
-        relations(models[`M${d.owner}`], (r) => ({
+      const declarations = spec.declarations.map(d =>
+        relations(models[`M${d.owner}`], r => ({
           [d.name]: r.hasMany(models[`M${d.target}`], { from: 'id', to: 'id' }),
         })),
       );
@@ -318,7 +330,7 @@ describe('properties', () => {
       const keyed = {};
       for (const k of spec.keyed) {
         const previous = keyed[`M${k.owner}`];
-        keyed[`M${k.owner}`] = (r) => ({
+        keyed[`M${k.owner}`] = r => ({
           ...(previous ? previous(r) : {}),
           [k.name]: r.belongsToOne(`M${k.target}`, { from: 'id', to: 'id' }),
         });
@@ -360,7 +372,8 @@ describe('properties', () => {
       const conflicts = new Set();
       for (const def of defs) {
         const key = `M${def.owner}.${def.name}`;
-        if (seen.has(key) || def.name === 'label') conflicts.add(key);
+        if (seen.has(key) || def.name === 'label')
+          conflicts.add(key);
         seen.add(key);
       }
       return conflicts;
@@ -368,9 +381,9 @@ describe('properties', () => {
 
     it('generates registries with and without conflicts', () => {
       const samples = fc.sample(registrySpec, { numRuns: 1000, seed: 42 });
-      const share =
-        samples.filter((spec) => predictedConflicts(expectedRelations(spec)).size > 0).length /
-        samples.length;
+      const share
+        = samples.filter(spec => predictedConflicts(expectedRelations(spec)).size > 0).length
+          / samples.length;
       expect(share).to.be.within(0.2, 0.8);
     });
 
@@ -384,7 +397,8 @@ describe('properties', () => {
           let db = null;
           try {
             db = build(spec)();
-          } catch (err) {
+          }
+          catch (err) {
             error = err;
           }
 
@@ -393,15 +407,17 @@ describe('properties', () => {
             const named = /relation "(M\d+\.\w+)"/.exec(error.message);
             expect(named).not.to.be(null);
             expect([...conflicts]).to.contain(named[1]);
-          } else {
-            if (error) throw error;
+          }
+          else {
+            if (error)
+              throw error;
             for (let i = 0; i < spec.modelCount; ++i) {
               const actual = Object.entries(db[`M${i}`].modelClass.getRelations())
                 .map(([name, relation]) => `${name}:${relation.constructor.name}`)
                 .sort();
               const expected = defs
-                .filter((d) => d.owner === i)
-                .map((d) => `${d.name}:${d.kind}`)
+                .filter(d => d.owner === i)
+                .map(d => `${d.name}:${d.kind}`)
                 .sort();
               expect(actual).to.eql(expected);
             }
