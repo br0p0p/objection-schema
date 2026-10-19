@@ -23,6 +23,8 @@ To try another Node version without editing `mise.toml`:
 | `pnpm run check`                                 | lint (incl. formatting) + all tests. **Run before calling it done** | ~30 s  |
 | `pnpm exec mocha tests/runtime/features.test.js` | one runtime test file (add `-g "<pattern>"` to filter)              | ~2 s   |
 | `pnpm run test:runtime`                          | all runtime tests (CJS + ESM, in-memory sqlite)                     | ~3 s   |
+| `pnpm run test:pg` / `pnpm run test:mysql`       | the runtime tests on a running Postgres / MySQL (see `db.js`)       | ~5 s   |
+| `pnpm run test:pack`                             | the packed package installed with npm in a fresh app, CJS/ESM/TS    | ~20 s  |
 | `pnpm run test:types`                            | type tests, node10 + nodenext configs (incremental)                 | 5–16 s |
 | `pnpm run lint` / `pnpm run lint:fix`            | eslint, which is also the formatter; warnings fail too              | ~5 s   |
 | `pnpm run test:mutations -- --mutate lib/x.js`   | Stryker on one file (add `--incremental` to reuse results)          | <1 min |
@@ -32,7 +34,8 @@ To try another Node version without editing `mise.toml`:
 | `FC_NUM_RUNS=1000 pnpm run test:properties`      | property tests with more runs                                       | varies |
 
 `pnpm test` is runtime + types + package exports (attw). CI (`.github/workflows/`) runs lint,
-`pnpm test` on Node 18/20/22, objection versions, and both mutation suites on pull requests.
+`pnpm test` on Node 20/22/24, the runtime tests on Postgres and MySQL, `test:pack`, objection
+versions, and both mutation suites on pull requests.
 
 ## Layout
 
@@ -48,13 +51,16 @@ lib/                       the published runtime (CommonJS, plain JS, no build s
   standardSchema.js        Standard Schema helpers, sync-only guard, unchecked()
 typings/index.d.ts         hand-written types for everything (≈1.4k lines, sectioned by `// ---`)
 typings/index.d.mts        ESM types: `export * from './index.js'`
-tests/runtime/             mocha + expect.js, in-memory sqlite. Files import 'objection-schema'
-                           (self-reference through package exports), not relative paths.
+tests/runtime/             mocha + expect.js. Files import 'objection-schema' (self-reference
+                           through package exports), not relative paths, and connect through
+                           db.js: in-memory sqlite, or DB=pg|mysql (it empties the database).
   defineModel.test.js      main walkthrough       features.test.js  every option and error path
   properties.test.js       fast-check vs oracles  esm.test.mjs      ESM entry point
   exports.test.js          typings declare exactly the runtime exports
+  interop.test.js          objection APIs (instance queries, upserts, mappers, …), vs classic
+  databases.test.js        real column types (bigint ids, decimals, JSON, timestamps, arrays)
 tests/types/               compiled, never run. typed.ts (main), cjs.cts / esm.mts (entry points)
-scripts/                   objection version matrix, type mutation runner
+scripts/                   objection version matrix, type mutation runner, test-pack.js
 bench/                     benchmarks (not part of the checks)
 ```
 
@@ -72,7 +78,7 @@ catches each one is named here.
    `typings/index.d.ts`, and documented in the README. `exports.test.js` and `esm.test.mjs` fail if
    they drift.
 3. **`lib/` runtime constraints** (enforced by `eslint.config.mjs`):
-   - It runs on Node ≥ 14, because `engines` follows objection 3. CI only runs 18–22, so the lint is
+   - It runs on Node ≥ 14, because `engines` follows objection 3. CI only runs 20–24, so the lint is
      the only guard: no `Object.hasOwn`, `Array.prototype.at`, `??=`, `structuredClone`, … .
    - It may only `require('objection')` (the peer dependency) and its own files. Schema libraries
      come from users, so never require zod or valibot in `lib/`.

@@ -4,7 +4,6 @@
 // relation options, composite keys, classic model handles, error paths and handle methods.
 
 const expect = require('expect.js');
-const Knex = require('knex');
 const { Model, ValidationError, raw } = require('objection');
 const {
   defineModel,
@@ -17,16 +16,13 @@ const {
 } = require('objection-schema');
 const v = require('valibot');
 const { z } = require('zod');
+const { connect } = require('./db');
 
 describe('features', () => {
   let knex;
 
   before(async () => {
-    knex = Knex({
-      client: 'sqlite3',
-      connection: { filename: ':memory:' },
-      useNullAsDefault: true,
-    });
+    knex = await connect();
     Model.knex(knex);
 
     await knex.schema
