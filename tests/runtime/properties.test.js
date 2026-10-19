@@ -22,7 +22,7 @@ const NUM_RUNS = Number(process.env.FC_NUM_RUNS || 200);
 
 const Address = z.object({ street: z.string().min(1), city: z.string() });
 
-const shape = {
+const columnContracts = {
   id: { schema: z.number().int().positive(), meta: 'generated' },
   firstName: { schema: z.string().trim().min(1) }, // required, transformed
   email: { schema: z.string().toLowerCase() }, // required, transformed
@@ -36,7 +36,7 @@ const shape = {
 const Person = defineModel({
   table: 'people',
   columns: Object.fromEntries(
-    Object.entries(shape).map(([prop, { schema, meta }]) => {
+    Object.entries(columnContracts).map(([prop, { schema, meta }]) => {
       if (meta === 'generated')
         return [prop, column(schema).generated()];
 
@@ -55,7 +55,7 @@ const Person = defineModel({
 // in are optional; unknown keys pass through, as objection allows them by default.
 const oracle = z.looseObject(
   Object.fromEntries(
-    Object.entries(shape).map(([prop, { schema, meta }]) => [
+    Object.entries(columnContracts).map(([prop, { schema, meta }]) => [
       prop,
       meta === 'generated' || meta === 'hasDefault' ? schema.optional() : schema,
     ]),
@@ -106,7 +106,7 @@ const MISSING = Symbol('missing');
 const anyInput = fc
   .record({
     ...Object.fromEntries(
-      Object.keys(shape).map(prop => [
+      Object.keys(columnContracts).map(prop => [
         prop,
         fc.oneof(
           { arbitrary: valid[prop], weight: 12 },
@@ -122,7 +122,7 @@ const anyInput = fc
   );
 
 const validInput = fc.record(
-  Object.fromEntries(Object.keys(shape).map(prop => [prop, valid[prop]])),
+  Object.fromEntries(Object.keys(columnContracts).map(prop => [prop, valid[prop]])),
   { requiredKeys: ['firstName', 'email', 'address'] },
 );
 
@@ -210,7 +210,7 @@ describe('properties', () => {
           const given = Object.keys(dropUndefined(input));
 
           const invalid = given.filter(
-            prop => shape[prop] && !shape[prop].schema.safeParse(input[prop]).success,
+            prop => columnContracts[prop] && !columnContracts[prop].schema.safeParse(input[prop]).success,
           );
 
           if (invalid.length) {
@@ -344,10 +344,12 @@ describe('properties', () => {
 
       for (const k of spec.keyed) {
         const previous = keyed[`M${k.owner}`];
-        keyed[`M${k.owner}`] = r => ({
-          ...(previous ? previous(r) : {}),
-          [k.name]: r.belongsToOne(`M${k.target}`, { from: 'id', to: 'id' }),
-        });
+        keyed[`M${k.owner}`] = (r) => {
+          const definitions = previous ? previous(r) : {};
+          definitions[k.name] = r.belongsToOne(`M${k.target}`, { from: 'id', to: 'id' });
+
+          return definitions;
+        };
       }
 
       return () => defineModels(models, declarations, keyed);
