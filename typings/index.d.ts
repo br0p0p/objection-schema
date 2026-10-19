@@ -1389,6 +1389,9 @@ export type Models<M extends ModelsInput, Rels, D extends readonly unknown[] = [
  * `relations(Model, ...)` declarations (array) and from a keyed object, in any
  * combination. Defining a relation name twice, or naming a relation like a
  * column, is a type error (and a runtime error).
+ *
+ * A definition can be part of one registry only (its relations are set on its model
+ * class); passing it to a second `defineModels` call throws.
  */
 export function defineModels<
   M extends ModelsInput,

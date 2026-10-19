@@ -2,14 +2,16 @@
 // working against objection 3.x (which is CommonJS) from ESM code.
 import { createRequire } from 'node:module';
 import expect from 'expect.js';
-import Knex from 'knex';
 import { Model } from 'objection';
 import * as esm from 'objection-schema';
 import { column, defineModel, defineModels } from 'objection-schema';
 import { z } from 'zod';
+import db from './db.js';
 
 const require = createRequire(import.meta.url);
 const cjs = require('objection-schema');
+
+const { connect } = db;
 
 describe('ES module entry point', () => {
   it('exports exactly what the CommonJS entry point exports, as the same instances', () => {
@@ -21,11 +23,7 @@ describe('ES module entry point', () => {
   });
 
   it('defines and queries models from ESM code', async () => {
-    const knex = Knex({
-      client: 'sqlite3',
-      connection: { filename: ':memory:' },
-      useNullAsDefault: true,
-    });
+    const knex = await connect();
 
     try {
       await knex.schema.createTable('items', (t) => {

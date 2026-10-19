@@ -48,9 +48,10 @@ const people = await db.Person.query()
 |            |                                                                                                                                                   |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | objection  | `^3.0.0` (peer dependency). Tested against 3.0.0, 3.1.5, 3.5.0 and 3.9.1 (`pnpm run test:objection-versions`). objection 4.x isn't supported yet. |
-| Node       | Same as objection 3 (≥ 14) for the runtime; tests run on Node 18–22.                                                                              |
+| Node       | Same as objection 3 (≥ 14) for the runtime; tests run on Node 20–24.                                                                              |
 | TypeScript | ≥ 5.0 for the typings (tests use 5.8). objection 3.0.x's own declarations need `skipLibCheck` on TypeScript 5.8.                                  |
 | Schemas    | Any Standard Schema library. Runtime has no schema-library dependency. Validation must be synchronous.                                            |
+| Databases  | Tested on sqlite, Postgres and MySQL. On Postgres, see [bigint ids](#postgres-bigint-ids).                                                        |
 
 ## CommonJS and ES modules
 
@@ -134,6 +135,10 @@ runtime too, naming both definition sites:
   classic model;
 - `relations()` for a model, or targeting a model, that isn't in the registry.
 
+A definition belongs to one registry: its relations are set on its model class, so passing it to a
+second `defineModels` call (or twice to one) throws at runtime. Call `defineModel()` again for
+another registry, e.g. in tests.
+
 **Checking `references()` targets where they're written.** Declare the registry's names once. They
 can't be derived from the registry itself, whose type depends on these columns:
 
@@ -215,8 +220,20 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
 ## Known limitations
 
 - **Read types vs. database types:** row types are the schemas' _output_ types, but rows from the
-  database aren't run through the schemas. E.g. `z.date()` on sqlite, or Postgres
-  `bigint`/`numeric` read as strings.
+  database aren't run through the schemas. E.g. `z.date()` on sqlite (a string or number), or
+  `decimal`/`numeric` columns, which Postgres and MySQL return as strings.
+- <a id="postgres-bigint-ids"></a>**Postgres `bigint` ids:** `pg` returns `bigint` (`bigIncrements`)
+  as strings. Besides the read type, this breaks graph writes: `insertGraph` and `upsertGraph` copy
+  the parent's string id into a child's foreign key, and a `z.number()` schema rejects it. Either
+  parse `bigint` as a number, which is exact up to `Number.MAX_SAFE_INTEGER`:
+
+  ```js
+  require('pg').types.setTypeParser(20, Number); // or per connection: `connection.types`
+  ```
+
+  or use `z.coerce.number()` for id and foreign key columns (ids read from the database are then
+  still strings).
+
 - **Column naming:** property names are column names. For snake_case use knex's
   `knexSnakeCaseMappers()`; per-model casing needs a hook in objection.
 - **Untyped query methods:** aggregates, raw/subquery selects, JSON operators and unions. Use
@@ -237,6 +254,9 @@ mise install
 pnpm install
 pnpm run check                   # lint (which includes formatting), then pnpm test: run this before pushing
 pnpm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
+pnpm run test:pg                 # runtime tests on Postgres (DB=pg; PG* variables, see tests/runtime/db.js)
+pnpm run test:mysql              # runtime tests on MySQL (DB=mysql; MYSQL_* variables)
+pnpm run test:pack               # the packed package installed in a fresh app (CJS, ESM, TypeScript)
 pnpm run test:objection-versions # runtime + types against several objection 3.x releases
 pnpm run test:mutations          # Stryker mutation testing of lib/ (must stay at 100%)
 pnpm run test:mutations:types    # curated mutants of the type declarations (all must be caught)
@@ -250,7 +270,12 @@ coding agents read. `CLAUDE.md` and `.claude/` configure Claude Code for this re
 How the tests are layered:
 
 - **Example tests** (`tests/runtime/*.test.js`) cover each feature, its errors, and interop with
-  class-based models, on sqlite.
+  class-based models and objection's APIs (`interop.test.js`). They run on in-memory sqlite by
+  default, and in CI also on Postgres and MySQL (`DB=pg|mysql`). `databases.test.js` uses the
+  column types of real applications (bigint ids, decimals, JSON, timestamps, arrays).
+- **Package test** (`scripts/test-pack.js`) installs the packed package into a fresh project with
+  its own objection, checks the package's files, and runs an app from CommonJS, ES modules and
+  TypeScript (`nodenext`).
 - **Property tests** (`tests/runtime/properties.test.js`, [fast-check](https://fast-check.dev))
   check rules against independent oracles. Validation must agree with an equivalent zod object
   schema for any input, never mutate its input, be idempotent, and leave patches alone. Rows must

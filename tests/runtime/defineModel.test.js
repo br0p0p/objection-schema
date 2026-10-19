@@ -1,7 +1,6 @@
 'use strict';
 
 const expect = require('expect.js');
-const Knex = require('knex');
 const { Model, ValidationError, transaction, mixin } = require('objection');
 const {
   defineModel,
@@ -13,6 +12,7 @@ const {
 } = require('objection-schema');
 const v = require('valibot');
 const { z } = require('zod');
+const { connect } = require('./db');
 
 describe('objection-schema', () => {
   let knex;
@@ -85,11 +85,7 @@ describe('objection-schema', () => {
   );
 
   before(async () => {
-    knex = Knex({
-      client: 'sqlite3',
-      connection: { filename: ':memory:' },
-      useNullAsDefault: true,
-    });
+    knex = await connect();
     Model.knex(knex);
 
     await knex.schema
@@ -584,6 +580,41 @@ describe('objection-schema', () => {
             ]),
           /points to a model that isn't part of this registry/,
         );
+      });
+
+      it('a definition in a second registry, or twice in one', () => {
+        const { Owner, Pet } = makeModels();
+        const first = defineModels(
+          { Owner, Pet },
+          { Owner: r => ({ parent: r.belongsToOne('Owner', { from: 'parentId', to: 'id' }) }) },
+        );
+
+        // It would replace the first registry's relations, which live on the model class.
+        throws(
+          () => defineModels({ Owner }),
+          /"Owner" \(Owner\) is already part of another registry/,
+        );
+        throws(() => defineModels({ Boss: Owner }), /"Boss" \(Owner\) is already part of/);
+        expect(Object.keys(first.Owner.modelClass.getRelations()).sort()).to.eql([
+          'parent',
+          'pets',
+        ]);
+
+        const Fresh = makeModels().Owner;
+        throws(
+          () => defineModels({ Owner: Fresh, Boss: Fresh }),
+          /"Boss" is the same definition as "Owner"/,
+        );
+        // Classic models aren't changed by a registry, so they can be in several.
+        expect(() => defineModels({ Movie })).not.to.throwError();
+      });
+
+      it('a registry that failed leaves its definitions free for the next one', () => {
+        const { Owner, Pet } = makeModels();
+        throws(() => defineModels({ Owner, Pet }, { Nope: () => ({}) }), /unknown model "Nope"/);
+
+        const db = defineModels({ Owner, Pet });
+        expect(db.Owner).to.be(Owner);
       });
     });
   });

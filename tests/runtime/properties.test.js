@@ -12,9 +12,9 @@
 const assert = require('node:assert');
 const expect = require('expect.js');
 const fc = require('fast-check');
-const Knex = require('knex');
 const { defineModel, defineModels, relations, column } = require('objection-schema');
 const { z } = require('zod');
+const { connect } = require('./db');
 
 const NUM_RUNS = Number(process.env.FC_NUM_RUNS || 200);
 
@@ -225,11 +225,7 @@ describe('properties', () => {
     let knex;
 
     before(async () => {
-      knex = Knex({
-        client: 'sqlite3',
-        connection: { filename: ':memory:' },
-        useNullAsDefault: true,
-      });
+      knex = await connect();
       await knex.schema.createTable('people', (t) => {
         t.increments('id');
         for (const col of ['firstName', 'email', 'status', 'createdAt']) t.string(col);
