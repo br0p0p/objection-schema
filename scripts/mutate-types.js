@@ -12,10 +12,13 @@ const process = require('node:process');
 
 const root = path.resolve(__dirname, '..');
 
-const TYPES
-  = 'pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json';
+// The type tests check the built declarations, so each mutant is built first. A mutant that
+// breaks the build of lib/ still emits declarations; it only counts as caught if the type
+// tests fail on them.
+const BUILD = 'pnpm exec tsc -p tsconfig.json';
+const TYPES = `${BUILD}; pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json`;
 
-const D = 'typings/index.d.ts';
+const D = 'lib/types.ts';
 
 const mutants = [
   [
@@ -129,7 +132,7 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
-  ['typings/index.d.mts', `export * from './index.js';`, `export {};`, 'ESM types export nothing'],
+  ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
 ];
 
 function passes() {
@@ -177,6 +180,9 @@ for (const [file, find, replace, description] of mutants) {
     problems.push(`survived: ${description}`);
   else caught += 1;
 }
+
+// Leave dist/ built from the restored sources, not from the last mutant.
+execSync(BUILD, { cwd: root, stdio: 'pipe' });
 
 console.log(`\n${caught}/${mutants.length} type mutants caught`);
 

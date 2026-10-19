@@ -1,24 +1,51 @@
-'use strict';
+import type { ModelClass, ModelOptions, Pojo, ValidatorArgs } from 'objection';
+import type { StandardSchemaV1 } from './types';
+import { Validator } from 'objection';
+import { ValidationError } from './objection';
+import { validateSync } from './standardSchema';
 
-const { Validator, ValidationError } = require('objection');
-const { validateSync } = require('./standardSchema');
+/** A column as the validator sees it (see `normalizeColumns`). */
+export interface ValidatedColumn {
+  readonly prop: string;
+  readonly schema: StandardSchemaV1;
+  readonly generated: boolean;
+  readonly hasDefault: boolean;
+  readonly undefinedMode: 'required' | 'optional' | 'default';
+}
+
+// objection passes these as well, but doesn't declare them.
+interface ValidateOptions extends ModelOptions {
+  mutable?: boolean;
+  dataPath?: string;
+}
+
+interface ErrorItem {
+  message: string;
+  keyword: string;
+  params: object;
+}
+
+type Errors = Record<string, ErrorItem[]>;
 
 // Validates each column with its own Standard Schema. Validating per column
 // (instead of one object schema) makes patch validation free: only the given
 // properties are validated and no `.partial()` copy of the schema is needed.
-class StandardSchemaValidator extends Validator {
+export class StandardSchemaValidator extends Validator {
+  private readonly columns: readonly ValidatedColumn[];
+
   // A constructor, not `static init()`: objection exports `Validator` wrapped in an
   // ES5 function that calls the built-in `init` directly, so a subclass's would never run.
-  constructor({ columns }) {
+  constructor({ columns }: { columns: readonly ValidatedColumn[] }) {
     super();
     this.columns = columns;
   }
 
-  validate({ model, json, options }) {
+  validate({ model, json, options }: ValidatorArgs): Pojo {
     const columns = this.columns;
-    const patch = !!options.patch;
+    const opts: ValidateOptions = options;
+    const patch = !!opts.patch;
     let output = json;
-    let errors = null;
+    let errors: Errors | null = null;
 
     for (let i = 0, l = columns.length; i < l; ++i) {
       const col = columns[i];
@@ -32,7 +59,7 @@ class StandardSchemaValidator extends Validator {
         }
 
         if (col.undefinedMode === 'required') {
-          errors = addError(errors, options, col.prop, {
+          errors = addError(errors, opts, col.prop, {
             message: 'is required',
             keyword: 'required',
             params: { missingProperty: col.prop },
@@ -49,7 +76,7 @@ class StandardSchemaValidator extends Validator {
 
       if (result.issues) {
         for (const issue of result.issues) {
-          errors = addError(errors, options, issuePath(col.prop, issue), {
+          errors = addError(errors, opts, issuePath(col.prop, issue), {
             message: issue.message,
             keyword: col.schema['~standard'].vendor,
             params: { issue },
@@ -63,7 +90,7 @@ class StandardSchemaValidator extends Validator {
       if (result.value !== value) {
         // Schemas can transform values. Copy lazily so that the common case
         // of untransformed input allocates nothing.
-        if (output === json && !options.mutable) {
+        if (output === json && !opts.mutable) {
           output = Object.assign({}, json);
         }
 
@@ -72,7 +99,8 @@ class StandardSchemaValidator extends Validator {
     }
 
     if (errors !== null) {
-      throw model.constructor.createValidationError({
+      // SAFETY: objection only validates model instances, and a model's constructor is its class.
+      throw (model.constructor as ModelClass<typeof model>).createValidationError({
         type: ValidationError.Type.ModelValidation,
         data: errors,
       });
@@ -82,7 +110,7 @@ class StandardSchemaValidator extends Validator {
   }
 }
 
-function issuePath(prop, issue) {
+function issuePath(prop: string, issue: StandardSchemaV1.Issue): string {
   // Stryker disable next-line ConditionalExpression: an empty path joins to just `prop` anyway.
   if (!issue.path || issue.path.length === 0) {
     return prop;
@@ -94,7 +122,12 @@ function issuePath(prop, issue) {
 }
 
 // Same key format as AjvValidator so existing error handling keeps working.
-function addError(errors, options, path, error) {
+function addError(
+  errors: Errors | null,
+  options: ValidateOptions,
+  path: string,
+  error: ErrorItem,
+): Errors {
   errors = errors || {};
 
   const key = `${options.dataPath || ''}.${path}`.substring(1);
@@ -102,7 +135,3 @@ function addError(errors, options, path, error) {
 
   return errors;
 }
-
-module.exports = {
-  StandardSchemaValidator,
-};

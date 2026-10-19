@@ -6,7 +6,7 @@
     "module": "commonjs",
     "moduleResolution": "node10",
     "paths": {
-      "objection-schema": ["../../typings/index.d.ts"]
+      "objection-schema": ["../../dist/index.d.ts"]
     },
     "types": ["node"],
     "strict": true,

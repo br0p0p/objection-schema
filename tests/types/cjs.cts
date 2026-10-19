@@ -1,4 +1,4 @@
-// Types through the CommonJS entry point (`require` condition → typings/index.d.ts).
+// Types through the CommonJS entry point (`require` condition → dist/index.d.ts).
 import schema = require('objection-schema');
 
 import { z } from 'zod';

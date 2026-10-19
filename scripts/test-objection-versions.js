@@ -25,6 +25,10 @@ const saved = ['package.json', 'pnpm-lock.yaml'].map(file => [
 
 const install = version => run(`pnpm add --save-dev --save-exact objection@${version}`);
 
+// Built once, against the objection in package.json, like the published package: the same
+// dist/ has to work with every objection version.
+run('pnpm run build');
+
 function restore() {
   for (const [file, contents] of saved) fs.writeFileSync(file, contents);
   run('pnpm install --frozen-lockfile');

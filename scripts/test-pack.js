@@ -29,7 +29,7 @@ try {
 
   const unexpected = packed.files
     .map(it => it.path)
-    .filter(it => !/^(?:lib\/|typings\/|package\.json$|README\.md$)/.test(it));
+    .filter(it => !/^(?:dist\/|package\.json$|README\.md$)/.test(it));
 
   if (unexpected.length)
     throw new Error(`unexpected files in the package: ${unexpected}`);

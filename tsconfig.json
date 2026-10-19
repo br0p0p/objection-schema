@@ -1,0 +1,21 @@
+{
+  // Builds lib/ (TypeScript) into dist/: CommonJS, the ES module entry and declarations.
+  // The tests run against dist/, through the package's `exports`.
+  "compilerOptions": {
+    // es2020 is what Node 14 (`engines`) runs without downleveling. The lint rules for lib/
+    // catch newer built-ins that the `lib` setting alone doesn't (e.g. `Object.hasOwn`).
+    "target": "es2020",
+    "lib": ["es2020"],
+    "rootDir": "lib",
+    // `.ts` files are CommonJS (package.json has no `"type"`), `index.mts` is the ES module entry.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "types": ["node"],
+    "strict": true,
+    "declaration": true,
+    "newLine": "lf",
+    "outDir": "dist",
+    "skipLibCheck": true
+  },
+  "include": ["lib"]
+}

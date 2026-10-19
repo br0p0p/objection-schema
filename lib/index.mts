@@ -3,6 +3,8 @@
 // one instance (no dual package hazard). objection 3.x is CommonJS either way.
 import objectionSchema from './index.js';
 
+export type * from './index.js';
+
 export const {
   defineModel,
   defineModels,

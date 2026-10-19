@@ -1,6 +1,6 @@
 import type { Row } from 'objection-schema';
 import { column, defineModel, defineModels, relations } from 'objection-schema';
-// Types through the ES module entry point (`import` condition → typings/index.d.mts).
+// Types through the ES module entry point (`import` condition → dist/index.d.mts).
 import { z } from 'zod';
 
 type Equal<A, B>

@@ -5,7 +5,8 @@
   "mochaOptions": {
     "spec": ["tests/runtime/**/*.test.js", "tests/runtime/**/*.test.mjs"]
   },
-  "mutate": ["lib/**/*.js"],
+  "mutate": ["lib/**/*.ts", "lib/**/*.mts", "!lib/types.ts"],
+  "buildCommand": "pnpm run build",
   "coverageAnalysis": "perTest",
   "timeoutMS": 60000,
   "reporters": ["clear-text", "progress", "html", "json"],

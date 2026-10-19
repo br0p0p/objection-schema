@@ -72,6 +72,9 @@ objection 3.x is CommonJS either way.
 
 Since the repo is private, install it from GitHub with an authenticated git setup:
 `npm install github:br0p0p/objection-schema` (or `pnpm add github:br0p0p/objection-schema`).
+The package manager builds it on install (the `prepare` script runs `tsc`). pnpm only runs the
+build scripts of dependencies it's told to: add the entry its install error prints to
+`allowBuilds` in `pnpm-workspace.yaml`.
 
 ## Columns
 
@@ -249,10 +252,14 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
 The toolchain (Node and pnpm versions) is pinned in `mise.toml`; install [mise](https://mise.jdx.dev) and
 run `mise install`.
 
+The source is TypeScript in `lib/`, built with `tsc` into `dist/` (CommonJS, the ES module entry
+and the declarations), which is what the package publishes and what the tests run against.
+
 ```bash
 mise install
-pnpm install
+pnpm install                     # also builds dist/
 pnpm run check                   # lint (which includes formatting), then pnpm test: run this before pushing
+pnpm run build                   # lib/ -> dist/ (the test scripts build first on their own)
 pnpm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
 pnpm run test:pg                 # runtime tests on Postgres (DB=pg; PG* variables, see tests/runtime/db.js)
 pnpm run test:mysql              # runtime tests on MySQL (DB=mysql; MYSQL_* variables)
@@ -295,7 +302,8 @@ How the tests are layered:
   registries. Guard tests keep the generated inputs balanced between valid and invalid.
   `FC_NUM_RUNS` scales the number of runs.
 - **Type tests** (`tests/types`) assert exact inferred types and expected errors, and pin the
-  exact messages of relation errors via the `RelationErrors` type.
+  exact messages of relation errors via the `RelationErrors` type. They compile against the built
+  declarations in `dist/`, as users do.
 - **Mutation tests:**
   - Stryker mutates `lib/`; every mutant must be killed. The few behaviour-equivalent mutants
     (performance-only differences) are disabled in place, with the reason next to the code.
