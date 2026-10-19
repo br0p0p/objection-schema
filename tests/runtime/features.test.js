@@ -5,6 +5,7 @@
 
 const expect = require('expect.js');
 const { Model, ValidationError, raw } = require('objection');
+
 const {
   defineModel,
   defineModels,
@@ -14,6 +15,7 @@ const {
   toQueryBuilder,
   isModelDefinition,
 } = require('objection-schema');
+
 const v = require('valibot');
 const { z } = require('zod');
 const { connect } = require('./db');
@@ -75,6 +77,7 @@ describe('features', () => {
   describe('hooks', () => {
     it('calls every hook with the row, and the options where objection passes them', async () => {
       const calls = [];
+
       const record
         = name =>
           (row, ...args) => {
@@ -85,6 +88,7 @@ describe('features', () => {
               args: args.length,
               ctx: !!last && 'transaction' in last,
             });
+
             if (args.length === 2)
               calls[calls.length - 1].patch = args[0].patch;
           };
@@ -120,6 +124,7 @@ describe('features', () => {
 
       // (row, ctx) hooks get 1 extra argument, (row, options, ctx) hooks get 2.
       const byName = Object.fromEntries(calls.map(it => [it.name, it]));
+
       for (const name of [
         'beforeInsert',
         'afterInsert',
@@ -130,11 +135,13 @@ describe('features', () => {
         expect(byName[name].args).to.be(1);
         expect(byName[name].ctx).to.be(true);
       }
+
       for (const name of ['beforeUpdate', 'afterUpdate']) {
         expect(byName[name].args).to.be(2);
         expect(byName[name].patch).to.be(true);
         expect(byName[name].ctx).to.be(true);
       }
+
       expect(byName.beforeInsert.row.name).to.be('A');
       expect(byName.beforeUpdate.row.name).to.be('B');
     });
@@ -146,6 +153,7 @@ describe('features', () => {
         hooks: {
           async beforeInsert(row) {
             await new Promise(resolve => setTimeout(resolve, 5));
+
             if (row.name === 'taken') {
               throw new ValidationError({
                 type: 'ModelValidation',
@@ -157,6 +165,7 @@ describe('features', () => {
       });
 
       await Owner.query().insert({ name: 'free' });
+
       try {
         await Owner.query().insert({ name: 'taken' });
         expect().fail('should have thrown');
@@ -165,6 +174,7 @@ describe('features', () => {
         expect(err).to.be.a(ValidationError);
         expect(err.data.name[0].message).to.be('is taken');
       }
+
       expect(await Owner.query().resultSize()).to.be(1);
     });
 
@@ -210,6 +220,7 @@ describe('features', () => {
         table: 'owners',
         columns: ownerColumns(),
       });
+
       const Pet = defineModel({
         table: 'pets',
         columns: {
@@ -220,12 +231,14 @@ describe('features', () => {
         },
         modifiers: { dogs: q => q.where('species', 'dog') },
       });
+
       const db = defineModels({ Owner, Pet }, [
         relations(Owner, r => ({
           pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }),
           dogs: r.hasMany(Pet, { from: 'id', to: 'ownerId' }, petRelationOptions),
         })),
       ]);
+
       return db;
     }
 
@@ -235,6 +248,7 @@ describe('features', () => {
     ]) {
       it(`\`modify\` (${label}) filters the relation`, async () => {
         const db = makePetModels({ modify });
+
         const owner = await db.Owner.query().insertGraph({
           name: 'A',
           pets: [
@@ -251,6 +265,7 @@ describe('features', () => {
 
     it('`beforeInsert` runs for models inserted through the relation', async () => {
       const seen = [];
+
       const db = makePetModels({
         beforeInsert(pet) {
           seen.push(pet.name);
@@ -269,6 +284,7 @@ describe('features', () => {
   describe('relation kinds', () => {
     it('hasOne and hasOneThrough', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
       const Pet = defineModel({
         table: 'pets',
         columns: {
@@ -278,10 +294,12 @@ describe('features', () => {
           ownerId: z.number(),
         },
       });
+
       const Film = defineModel({
         table: 'films',
         columns: { id: column(z.number()).generated(), title: z.string() },
       });
+
       const db = defineModels(
         { Owner, Pet, Film },
         {
@@ -328,16 +346,19 @@ describe('features', () => {
         table: 'user_accounts',
         columns: { id: z.number() },
       });
+
       expect(named.name).to.be('Account');
       expect(named.modelClass.name).to.be('Account');
     });
 
     it('only strips a trailing `Id` / `_id` to name a foreign key relation', () => {
       const Owner = defineModel({ table: 'owners', columns: { id: z.number() } });
+
       const Pet = defineModel({
         table: 'pets',
         columns: { id: z.number(), ownerIdentity: column(z.number()).references('Owner', 'id') },
       });
+
       expect(() => defineModels({ Owner, Pet })).to.throwError(
         /Pet\.ownerIdentity\.references\(\) needs an `as` relation name/,
       );
@@ -351,6 +372,7 @@ describe('features', () => {
         id: ['tenant', 'id'],
         columns: { tenant: z.string(), id: z.number(), name: z.string() },
       });
+
       const Membership = defineModel({
         table: 'memberships',
         columns: {
@@ -360,6 +382,7 @@ describe('features', () => {
           role: z.string(),
         },
       });
+
       const db = defineModels({ Account, Membership }, [
         relations(Account, r => ({
           members: r.hasMany(Membership, { from: ['tenant', 'id'], to: ['tenant', 'accountId'] }),
@@ -382,6 +405,7 @@ describe('features', () => {
       const [admin] = await db.Membership.query()
         .where('role', 'admin')
         .withGraphFetched('account');
+
       expect(admin.account.name).to.be('A1');
     });
   });
@@ -410,6 +434,7 @@ describe('features', () => {
   describe('validation error paths', () => {
     it('prefix nested graph errors with the path of the model in the graph', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
       const Pet = defineModel({
         table: 'pets',
         columns: {
@@ -419,6 +444,7 @@ describe('features', () => {
           ownerId: column(z.number()).references('Owner', 'id', { inverse: 'pets' }),
         },
       });
+
       const db = defineModels({ Owner, Pet });
 
       try {
@@ -472,6 +498,7 @@ describe('features', () => {
               : { issues: [{ message: 'must be positive' }] },
         },
       });
+
       const Thing = defineModel({
         table: 'things',
         columns: { id: z.number(), size: positive, other: column(positive) },
@@ -486,6 +513,7 @@ describe('features', () => {
 
   describe('argument validation', () => {
     const Owner = () => defineModel({ table: 'owners', columns: ownerColumns() });
+
     const cases = [
       [
         'column() without a schema',
@@ -585,6 +613,7 @@ describe('features', () => {
             { Owner: Owner() },
             { Owner: r => ({ x: r.hasMany('Ownr', { from: 'id', to: 'id' }) }) },
           );
+
           db.Owner.modelClass.getRelations();
         },
         /relation of "Owner" points to unknown model "Ownr"/,
@@ -605,9 +634,11 @@ describe('features', () => {
       expect(() =>
         defineModels({ Owner: Owner() }, [relations(Stranger, () => ({}))]),
       ).to.throwError(/isn't part of this registry \(Stranger\)/);
+
       class Classic extends Model {
         static tableName = 'classic';
       }
+
       const own = Owner();
       expect(() =>
         defineModels({ Owner: own }, [
@@ -629,9 +660,11 @@ describe('features', () => {
 
       await Owner.query().insert({ name: 'A' });
       await Owner.query().insert({ name: 'B' });
+
       const names = await Owner.query()
         .where(Owner.ref('name'), '!=', 'A')
         .select(raw('upper(??) as up', ['name']));
+
       expect(names.map(it => it.up)).to.eql(['B']);
 
       const query = Owner.query();

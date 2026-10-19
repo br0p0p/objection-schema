@@ -83,6 +83,7 @@ describe('objection interop', () => {
         .$query()
         .patch({ firstName: ' ' })
         .catch(err => err);
+
       expect(error).to.be.a(ValidationError);
       expect(Object.keys(error.data)).to.eql(['firstName']);
     });
@@ -97,6 +98,7 @@ describe('objection interop', () => {
 
     it('update() of plain data validates the whole row', async () => {
       const person = await db.Person.query().insert({ firstName: 'Ann' });
+
       const error = await db.Person.query()
         .findById(person.id)
         .update({ email: 'x@y.z' })
@@ -116,6 +118,7 @@ describe('objection interop', () => {
       ]) {
         const instance = modelClass.fromJson(invalid, { skipValidation: true });
         const inserted = await modelClass.query().insert(instance);
+
         const plain = await modelClass
           .query()
           .insert(invalid)
@@ -140,12 +143,14 @@ describe('objection interop', () => {
       const updated = await db.Person.query().updateAndFetchById(person.id, {
         firstName: ' Anna ',
       });
+
       expect(updated.firstName).to.equal('Anna');
 
       const error = await db.Person.query()
         .findById(person.id + 1000)
         .throwIfNotFound()
         .catch(err => err);
+
       expect(error.name).to.equal('NotFoundError');
     });
 
@@ -164,6 +169,7 @@ describe('objection interop', () => {
   describe('graphs', () => {
     it('upsertGraph relates and unrelates existing rows through a references() inverse', async () => {
       const boss = await db.Person.query().insert({ firstName: 'Boss' });
+
       const [a, b] = [
         await db.Person.query().insert({ firstName: 'A' }),
         await db.Person.query().insert({ firstName: 'B' }),
@@ -186,10 +192,12 @@ describe('objection interop', () => {
 
     it('inserting through a relation validates the related model', async () => {
       const boss = await db.Person.query().insert({ firstName: 'Boss' });
+
       const error = await boss
         .$relatedQuery('reports')
         .insert({ firstName: '' })
         .catch(err => err);
+
       expect(error).to.be.a(ValidationError);
 
       const report = await boss.$relatedQuery('reports').insert({ firstName: ' R ' });
@@ -228,6 +236,7 @@ describe('objection interop', () => {
 
     it('maps camelCase columns to snake_case in the database', async () => {
       const { Person } = makeModels();
+
       const boss = await Person.query(snakeKnex).insertGraph({
         firstName: ' Boss ',
         reports: [{ firstName: 'R', meta: { level: 1 } }],

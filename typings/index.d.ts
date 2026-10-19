@@ -43,26 +43,34 @@ export declare namespace StandardSchemaV1 {
     readonly validate: (value: unknown) => Result<Output> | Promise<Result<Output>>;
     readonly types?: Types<Input, Output> | undefined;
   }
+
   type Result<Output> = SuccessResult<Output> | FailureResult;
+
   interface SuccessResult<Output> {
     readonly value: Output;
     readonly issues?: undefined;
   }
+
   interface FailureResult {
     readonly issues: ReadonlyArray<Issue>;
   }
+
   interface Issue {
     readonly message: string;
     readonly path?: ReadonlyArray<PropertyKey | PathSegment> | undefined;
   }
+
   interface PathSegment {
     readonly key: PropertyKey;
   }
+
   interface Types<Input = unknown, Output = Input> {
     readonly input: Input;
     readonly output: Output;
   }
+
   type InferInput<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['input'];
+
   type InferOutput<S extends StandardSchemaV1> = NonNullable<S['~standard']['types']>['output'];
 }
 
@@ -71,10 +79,13 @@ export declare namespace StandardSchemaV1 {
 // ---------------------------------------------------------------------------
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void
   ? I
   : never;
+
 type StrKeys<T> = keyof T & string;
+
 type IsNever<T> = [T] extends [never] ? true : false;
 
 /** Values that objection accepts in place of a literal value. */
@@ -96,6 +107,7 @@ export interface ColumnFlags {
 }
 
 type DefaultFlags = { generated: false; hasDefault: false; json: false };
+
 type SetFlag<F extends ColumnFlags, K extends keyof ColumnFlags> = {
   [P in keyof ColumnFlags]: P extends K ? true : F[P];
 };
@@ -158,13 +170,18 @@ export interface Column<
 }
 
 export type ColumnInput = StandardSchemaV1 | Column<any, any, any, any>;
+
 export type Columns = Record<string, ColumnInput>;
 
 type SchemaOf<C>
   = C extends Column<infer S, any, any, any> ? S : C extends StandardSchemaV1 ? C : never;
+
 type FlagsOf<C> = C extends Column<any, infer F, any, any> ? F : DefaultFlags;
+
 type ReferenceOfColumn<C> = C extends Column<any, any, infer R, any> ? R : null;
+
 type ColOut<C> = StandardSchemaV1.InferOutput<SchemaOf<C>>;
+
 type ColIn<C> = StandardSchemaV1.InferInput<SchemaOf<C>>;
 
 type OptionalInsertKeys<C extends Columns> = {
@@ -212,6 +229,7 @@ type InsertResultOfColumns<C extends Columns, Id extends IdSpec> = Simplify<
 // ---------------------------------------------------------------------------
 
 type IdSpec = string | readonly string[];
+
 type IdKeys<Id extends IdSpec> = Id extends readonly string[] ? Id[number] : Id;
 
 interface RelationDescriptor {
@@ -282,18 +300,26 @@ type EntryOf<R extends Registry, K> = K extends string
     : never;
 
 type RowOf<R extends Registry, K> = EntryOf<R, K>['row'];
+
 type RelationsOf<R extends Registry, K> = EntryOf<R, K>['relations'];
+
 type ColumnKeys<R extends Registry, K> = StrKeys<RowOf<R, K>>;
+
 type RelationOf<R extends Registry, K, Rel> = RelationsOf<R, K>[Rel
   & keyof RelationsOf<R, K>] extends infer D extends RelationDescriptor
   ? D
   : never;
+
 type TargetOf<R extends Registry, K, Rel> = RelationOf<R, K, Rel>['target'];
+
 type KindOf<R extends Registry, K, Rel> = RelationOf<R, K, Rel>['kind'];
+
 type ExtraOfRelation<R extends Registry, K, Rel> = RelationOf<R, K, Rel>['extra'];
+
 type FilledOf<R extends Registry, K, Rel> = RelationOf<R, K, Rel>['filled'];
 
 type IdValue<R extends Registry, K> = IdValueOf<EntryOf<R, K>['id'], RowOf<R, K>>;
+
 type IdValueOf<Id, Row> = Id extends readonly string[]
   ? { -readonly [I in keyof Id]: Row[Id[I] & keyof Row] }
   : Row[Id & keyof Row];
@@ -312,6 +338,7 @@ export type GraphExpression<R extends Registry, K> = {
 };
 
 type Whitespace = ' ' | '\n' | '\t' | '\r';
+
 type Trim<S extends string> = S extends `${Whitespace}${infer R}`
   ? Trim<R>
   : S extends `${infer R}${Whitespace}`
@@ -423,6 +450,7 @@ type GraphResult<R extends Registry, K, E> = {
 type ExpressionPaths<E, Prefix extends string = ''> = E extends object
   ? ExpressionPathsOf<E, Prefix>
   : never;
+
 type ExpressionPathsOf<E, Prefix extends string> = {
   [P in StrKeys<E>]: P extends `$${string}`
     ? never
@@ -500,7 +528,9 @@ type Output<S extends QueryState> = {
 }[S['container']];
 
 type R_<S extends QueryState> = S['registry'];
+
 type K_<S extends QueryState> = S['model'];
+
 type E_<S extends QueryState> = EntryOf<R_<S>, K_<S>>;
 
 /** Any column reference the query understands: `age`, `persons.age`, `pets.name`. */
@@ -544,6 +574,7 @@ export interface AnyQuery {
   readonly '~result': unknown;
   toKnexQuery(): Knex.QueryBuilder;
 }
+
 type Val<T> = T | ValueExpression | AnyQuery;
 
 export type WhereObject<S extends QueryState> = {
@@ -584,6 +615,7 @@ interface WhereExists<S extends QueryState> {
 }
 
 type Modifiers<S extends QueryState> = E_<S>['modifiers'];
+
 type GraphPathOf<S> = S extends QueryState ? ExpressionPaths<S['expression']> : never;
 
 // One non-generic overload per path (an intersection of function types is an
@@ -622,6 +654,7 @@ type SelectState<S extends QueryState, Cols extends readonly unknown[]> = With<
 >;
 
 type ContainerState<S extends QueryState, C extends Container> = With<S, { container: C }>;
+
 type MutationState<S extends QueryState, C extends Container, Row extends object> = With<
   S,
   { container: C; row: Row; selected: true; graph: {} }
@@ -910,6 +943,7 @@ type AnyModelDefinition = {
   readonly isObjectionModelDefinition: true;
   readonly '~spec': ModelSpec;
 };
+
 export type AnyModelHandle = { readonly '~types': { registry: Registry; model: unknown } };
 
 type ModifierQuery<C extends Columns, Id extends IdSpec, T extends string> = Query<
@@ -980,6 +1014,7 @@ export function toQueryBuilder(query: AnyQuery): QueryBuilder<Model, any>;
 type ClassicModelClass<M extends Model = Model> = (abstract new (...args: any[]) => M) & {
   readonly tableName: unknown;
 };
+
 type InstanceOf<C> = C extends abstract new (...args: any[]) => infer M
   ? M extends Model
     ? M
@@ -1022,6 +1057,7 @@ interface Join<M extends ModelsInput, K extends keyof M, T extends keyof M> {
 }
 
 type ExtraInput = readonly string[] | Record<string, ColumnInput>;
+
 type ExtraOf<X> = X extends readonly string[]
   ? { [P in X[number]]: unknown }
   : X extends Record<string, ColumnInput>
@@ -1164,6 +1200,7 @@ export function relations<
 
 type Same<A, B>
   = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
+
 type SameModel<A, B> = A extends { '~spec': infer SA }
   ? B extends { '~spec': infer SB }
     ? Same<SA, SB>
@@ -1202,6 +1239,7 @@ type DeclarationDescriptors<M, K, D extends readonly unknown[]> = UnionToInterse
 // --- column(schema).references(...) -----------------------------------------
 
 type ColumnsOfModel<X> = X extends { '~spec': infer Sp extends ModelSpec } ? Sp['columns'] : {};
+
 type ReferenceAt<M, J, P> = ReferenceOfColumn<
   ColumnsOfModel<M[J & keyof M]>[P & keyof ColumnsOfModel<M[J & keyof M]>]
 >;
@@ -1415,18 +1453,22 @@ type HandleInfo<H extends AnyModelHandle> = { r: H['~types']['registry']; k: H['
 
 /** The row type of a model: `Row<typeof db.Person>` */
 export type Row<H extends AnyModelHandle> = Simplify<RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>>;
+
 /** The insert input type of a model. */
 export type Insert<H extends AnyModelHandle> = EntryOf<
   HandleInfo<H>['r'],
   HandleInfo<H>['k']
 >['insert'];
+
 /** The patch input type of a model. */
 export type Patch<H extends AnyModelHandle> = EntryOf<
   HandleInfo<H>['r'],
   HandleInfo<H>['k']
 >['patch'];
+
 /** The resolved result of a typed query: `Result<typeof query>` */
 export type Result<Q extends AnyQuery> = Q['~result'];
+
 /** A row together with relations, as returned by `withGraphFetched(expression)`. */
 export type RowWithGraph<
   H extends AnyModelHandle,

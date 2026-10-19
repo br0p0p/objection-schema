@@ -1,6 +1,8 @@
 'use strict';
+
 const fs = require('node:fs');
 const path = require('node:path');
+
 // Asks the TypeScript language service (what editors use) for completions at
 // marked positions in a snippet, to verify autocompletion of the typed API.
 const ts = require('typescript');
@@ -54,11 +56,15 @@ for (const [label, snippet] of Object.entries(cases)) {
     readFile: ts.sys.readFile,
     readDirectory: ts.sys.readDirectory,
   };
+
   const service = ts.createLanguageService(host);
   const completions = service.getCompletionsAtPosition(file, pos, {});
+
   const names = (completions ? completions.entries : [])
     .map(e => e.name)
     .filter(n => !/^[A-Z_]/.test(n) || n === 'Animal' || n === 'Person');
+
   console.log(`${label.padEnd(40)} → ${names.slice(0, 20).join(', ')}`);
 }
+
 fs.unlinkSync(file);

@@ -15,6 +15,7 @@ function only(...clients) {
     it(`${title} (${clients.join(', ')})`, function () {
       if (!clients.includes(client))
         this.skip();
+
       return fn.call(this);
     });
 }
@@ -23,6 +24,7 @@ function only(...clients) {
 // connection, so that it doesn't leak to the other tests like a global parser would.
 function pgBigintAsNumber() {
   const { types } = require('pg');
+
   return {
     connection: {
       types: {
@@ -41,6 +43,7 @@ async function createTables(knex) {
       client === 'sqlite' ? t.text('prefs') : t.json('prefs');
       t.decimal('balance', 10, 2).notNullable().defaultTo(0);
       t.timestamp('createdAt').notNullable().defaultTo(knex.fn.now());
+
       if (client === 'pg')
         t.specificType('tags', 'text[]');
     })
@@ -145,6 +148,7 @@ describe(`databases (${client})`, () => {
       name: ' Ann ',
       orders: [{ sku: 'a', products: [{ sku: 'p1', quantity: 2 }] }, { sku: 'b' }],
     });
+
     expect(inserted.name).to.equal('Ann');
     expect(inserted.orders[0].customerId).to.equal(inserted.id);
 
@@ -152,6 +156,7 @@ describe(`databases (${client})`, () => {
       .findById(inserted.id)
       .withGraphFetched('orders(orderById).products')
       .modifiers({ orderById: q => q.orderBy('id') });
+
     expect(fetched.orders.map(it => it.sku)).to.eql(['a', 'b']);
     expect(fetched.orders[0].products[0]).to.have.property('quantity', 2);
 
@@ -165,6 +170,7 @@ describe(`databases (${client})`, () => {
       .findById(inserted.id)
       .withGraphFetched('orders(orderById).products')
       .modifiers({ orderById: q => q.orderBy('id') });
+
     expect(after.orders.map(it => it.sku)).to.eql(['a2', 'c']);
     expect(after.orders[0].products.map(it => it.sku)).to.eql(['p1']);
   });
@@ -196,6 +202,7 @@ describe(`databases (${client})`, () => {
 
   it('a database constraint error is the driver error, not a ValidationError', async () => {
     await db.Product.query().insert({ sku: 'dup' });
+
     const error = await db.Product.query()
       .insert({ sku: 'dup' })
       .catch(err => err);
@@ -206,6 +213,7 @@ describe(`databases (${client})`, () => {
 
   it('patchAndFetchById applies schema transforms and reads the row back', async () => {
     const customer = await db.Customer.query().insert({ name: 'Ann' });
+
     const patched = await db.Customer.query().patchAndFetchById(customer.id, {
       email: 'ANN@EXAMPLE.COM',
     });
@@ -237,6 +245,7 @@ describe(`databases (${client})`, () => {
 
   only('pg')('batch inserts return the generated ids', async () => {
     const customer = await db.Customer.query().insert({ name: 'Ann' });
+
     const orders = await db.Order.query().insert([
       { customerId: customer.id, sku: 'a' },
       { customerId: customer.id, sku: 'b' },
@@ -262,6 +271,7 @@ describe(`databases (${client})`, () => {
     // writes then fail because objection copies them into `z.number()` foreign keys.
     it('fails graph writes with z.number() ids', async () => {
       const models = makeModels();
+
       const error = await models.Customer.query(rawKnex)
         .insertGraph({ name: 'Ann', orders: [{ sku: 'a' }] })
         .catch(err => err);
@@ -272,6 +282,7 @@ describe(`databases (${client})`, () => {
 
     it('works with z.coerce.number() ids, the other documented fix', async () => {
       const models = makeModels(() => z.coerce.number().int());
+
       const customer = await models.Customer.query(rawKnex).insertGraph({
         name: 'Ann',
         orders: [{ sku: 'a' }],

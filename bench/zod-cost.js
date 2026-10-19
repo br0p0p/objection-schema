@@ -1,5 +1,7 @@
 'use strict';
+
 const { execFileSync } = require('node:child_process');
+
 // What does validating with zod cost? Compared against no validation, Ajv (classic
 // jsonSchema) and valibot, for a simple and a "realistic" schema (formats, regex,
 // refinements, transforms). Each case runs in a fresh process over interleaved rounds;
@@ -118,6 +120,7 @@ function makeModels(kind) {
     const columns = Object.fromEntries(
       Object.keys(schema.ajv.properties).map(k => [k, unchecked()]),
     );
+
     return defineModel({ table: 'people', columns }).modelClass;
   }
 
@@ -126,6 +129,7 @@ function makeModels(kind) {
 
 function inputs(kind) {
   const realistic = kind.startsWith('realistic');
+
   return Array.from({ length: ROWS }, (_, i) => {
     const row = {
       firstName: ` First${i} `,
@@ -134,6 +138,7 @@ function inputs(kind) {
       email: `User${i}@Example.com`,
       status: 'active',
     };
+
     if (realistic) {
       Object.assign(row, {
         website: i % 2 ? `https://example.com/${i}` : null,
@@ -142,6 +147,7 @@ function inputs(kind) {
       });
       row.firstName = row.firstName.trim();
     }
+
     return row;
   });
 }
@@ -149,17 +155,20 @@ function inputs(kind) {
 async function bestOf(fn, n) {
   for (let i = 0; i < 3; ++i) await fn();
   let best = Infinity;
+
   for (let i = 0; i < n; ++i) {
     const t0 = process.hrtime.bigint();
     await fn();
     best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6);
   }
+
   return best;
 }
 
 async function child(kind) {
   const Model = makeModels(kind);
   const rows = inputs(kind);
+
   const result = {
     insert: await bestOf(() => rows.map(it => Model.fromJson(it)), 15),
     patch: await bestOf(
@@ -172,13 +181,16 @@ async function child(kind) {
   // The same validation next to a real (in-memory sqlite) insert, one row per query.
   if (kind.startsWith('realistic')) {
     const Knex = require('knex');
+
     const knex = Knex({
       client: 'sqlite3',
       connection: { filename: ':memory:' },
       useNullAsDefault: true,
     });
+
     await knex.schema.createTable('people', (t) => {
       t.increments('id');
+
       for (const c of ['firstName', 'lastName', 'email', 'status', 'website', 'zip', 'tags'])
         t.string(c);
       t.integer('age');
@@ -206,8 +218,10 @@ function startup() {
         encoding: 'utf8',
       },
     );
+
     return Number(out);
   };
+
   const median = f => [0, 1, 2, 3, 4].map(f).sort((a, b) => a - b)[2];
 
   console.log('\nStartup (median of 5 fresh processes):');
@@ -221,9 +235,11 @@ function startup() {
     `  require('ajv') + ajv-formats        ${median(() => time('require(\'ajv\');require(\'ajv-formats\')')).toFixed(1)} ms`,
   );
   const define = `const {z}=require('zod');const {defineModel,column}=require('objection-schema');const t0=process.hrtime.bigint();for(let i=0;i<100;i++)defineModel({table:'t'+i,columns:{id:column(z.number()).generated(),a:z.string().min(1),b:z.string().email(),c:z.number().int().nullable().optional(),d:z.enum(['x','y']).default('x'),e:z.string(),f:z.boolean(),g:z.date(),h:z.string().url().optional(),i:z.number()}});process.stdout.write(String(Number(process.hrtime.bigint()-t0)/1e6));process.exit()`;
+
   const out = median(() =>
     Number(execFileSync(process.execPath, ['-e', define], { cwd: __dirname, encoding: 'utf8' })),
   );
+
   console.log(
     `  defineModel() x100 (10 zod columns) ${out.toFixed(1)} ms  (schemas built + one validate(undefined) probe per column)`,
   );
@@ -240,13 +256,16 @@ function report() {
     'realistic:zod',
     'realistic:valibot',
   ];
+
   const samples = {};
+
   for (let r = 0; r < ROUNDS; ++r) {
     for (const kind of kinds) {
       const out = execFileSync(process.execPath, [__filename, kind], { encoding: 'utf8' });
       (samples[kind] = samples[kind] || []).push(JSON.parse(out));
     }
   }
+
   const median = xs => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
   const label = { none: 'no validation', ajv: 'classic (Ajv)', zod: 'zod', valibot: 'valibot' };
 
@@ -255,16 +274,20 @@ function report() {
   );
   console.log('| schema | validator | insert | patch | µs/row (insert) | 1k sqlite inserts |');
   console.log('|---|---|---:|---:|---:|---:|');
+
   for (const kind of kinds) {
     const [schema, lib] = kind.split(':');
+
     const m = k =>
       samples[kind][0][k] === undefined ? null : median(samples[kind].map(s => s[k]));
+
     const ins = m('insert');
     const db = m('1k sqlite inserts');
     console.log(
       `| ${schema} | ${label[lib]} | ${ins.toFixed(1)} | ${m('patch').toFixed(1)} | ${((ins * 1000) / ROWS).toFixed(2)} | ${db === null ? '–' : db.toFixed(0)} |`,
     );
   }
+
   startup();
 }
 

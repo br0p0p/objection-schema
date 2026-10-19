@@ -1,5 +1,7 @@
 'use strict';
+
 const { execFileSync } = require('node:child_process');
+
 // Type-checking cost of a `defineModels` registry by size. Each model has 10 columns,
 // two `references()` (one with an inverse) and a `relations()` declaration, and the
 // file runs one typed graph query. Run: node bench/tooling/typecheck-scale.js [sizes...]
@@ -24,6 +26,7 @@ function source(n) {
       `parentId: column(z.number().nullable()).references('M${(i + 1) % n}', 'id', { inverse: 'kids${i}' })`,
       `ownerId: column(z.number().nullable()).references('M${(i + 2) % n}', 'id', { as: 'owner' })`,
     ];
+
     lines.push(
       `const M${i} = defineModel({ table: 't${i}', columns: { ${columns.join(', ')} } });`,
     );
@@ -38,6 +41,7 @@ function source(n) {
   lines.push(
     `export async function f() { const [x] = await db.M0.query().withGraphFetched('[parent.owner, peers, kids${n - 1}]'); const s: string = x.kids${n - 1}[0].c0; return s; }`,
   );
+
   return `${lines.join('\n')}\n`;
 }
 
@@ -49,6 +53,7 @@ for (const n of sizes.length ? sizes : [10, 40, 80]) {
   fs.writeFileSync(file, source(n));
 
   let out;
+
   try {
     out = execFileSync(
       tsc,

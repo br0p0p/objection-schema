@@ -1,4 +1,5 @@
 'use strict';
+
 // The database the runtime tests run against, picked with the `DB` environment variable:
 // `sqlite` (default, in memory), `pg` or `mysql`. Connection settings for the real
 // databases come from `PG*` / `MYSQL_*` variables, with defaults matching CI.
@@ -43,6 +44,7 @@ if (!configs[client]) {
 // database keeps them between files.
 async function connect(overrides = {}) {
   const config = configs[client]();
+
   const knex = Knex(
     Object.assign({}, config, overrides, {
       connection: Object.assign({}, config.connection, overrides.connection),

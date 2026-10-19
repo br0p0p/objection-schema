@@ -35,6 +35,7 @@ describe('ES module entry point', () => {
         table: 'items',
         columns: { id: column(z.number()).generated(), name: z.string().trim().min(1) },
       });
+
       const db = defineModels({ Item });
 
       const item = await db.Item.query(knex).insert({ name: '  ok  ' });
