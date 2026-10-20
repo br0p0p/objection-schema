@@ -15,7 +15,8 @@ const root = path.resolve(__dirname, '..');
 // The type tests check the built declarations, so the declarations of each mutant are built
 // first. With tsc rather than zshy: zshy emits nothing when lib/ doesn't compile, and a mutant
 // that breaks lib/ should only count as caught if the type tests fail on its declarations.
-// Both write the same CommonJS declarations (dist/index.d.ts, the `types` of both conditions).
+// tsc writes only the CommonJS declarations (dist/*.d.ts), which typed.ts and cjs.cts check. The
+// ES module ones (*.d.mts, for esm.mts) stay those of the clean build; they're the same source.
 const BUILD = 'pnpm exec tsc -p tsconfig.json --emitDeclarationOnly';
 const TYPES = `${BUILD}; pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json`;
 
@@ -132,6 +133,12 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'maybe'>>;`,
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
+  ],
+  [
+    'package.json',
+    `"types": "./dist/index.d.mts"`,
+    `"types": "./dist/index.d.ts"`,
+    'ES module imports get the CommonJS declarations',
   ],
 ];
 

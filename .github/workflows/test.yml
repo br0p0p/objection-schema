@@ -31,9 +31,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: pnpm test
-      # zshy writes `exports`, `main`, `module` and `types` into package.json on every build.
-      - name: package.json matches the build
-        run: git diff --exit-code package.json
 
   databases:
     name: ${{ matrix.db }}

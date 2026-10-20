@@ -56,7 +56,7 @@ const people = await db.Person.query()
 ## CommonJS and ES modules
 
 Both work, with types for each (checked with `@arethetypeswrong/cli` for `node10`, `node16` from CJS,
-`node16` from ESM and `bundler` resolution; see below for its "masquerading as CJS" note):
+`node16` from ESM and `bundler` resolution):
 
 ```js
 const { defineModel, defineModels } = require('objection-schema'); // CommonJS
@@ -73,9 +73,8 @@ definitions are in a registry already (shared through a global symbol). Only cla
 differs: the `StandardSchemaValidator` of one isn't the other's. objection 3.x is CommonJS either
 way, so both builds use the app's one objection.
 
-Both conditions get the same (CommonJS) declarations, as zshy does on purpose: TypeScript sees one
-copy of each type, whichever way it's imported. Import named exports (`import { defineModel }`);
-there's no default export.
+Each build has its own declarations (`.d.ts` and `.d.mts`), so TypeScript knows that the ES
+module build has no default export: import named exports (`import { defineModel }`).
 
 Since the repo is private, install it from a [GitHub release](https://github.com/br0p0p/objection-schema/releases):
 each one has the packed, built package attached. Download it with an authenticated
@@ -267,8 +266,8 @@ run `mise install`.
 
 The source is TypeScript in `lib/`, built with [zshy](https://github.com/colinhacks/zshy) (which
 uses `tsc`) into `dist/`: a CommonJS and an ES module build, and the declarations. That's what the
-package publishes and what the tests run against. zshy also writes `exports`, `main`, `module`
-and `types` in `package.json` from its `zshy` config, so commit those after changing it.
+package publishes and what the tests run against. The `exports` map in `package.json` is written
+by hand (zshy's `noEdit`), so ES module imports get the `.d.mts` declarations.
 
 ```bash
 mise install

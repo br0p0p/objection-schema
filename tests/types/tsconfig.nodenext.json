@@ -11,5 +11,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "files": ["typed.ts", "esm.mts", "cjs.cts"]
+  "files": ["typed.ts", "esm.mts", "esm-default.mts", "cjs.cts"]
 }
