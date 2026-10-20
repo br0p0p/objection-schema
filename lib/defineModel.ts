@@ -129,18 +129,22 @@ export function defineModel(config: RuntimeConfig): object {
     }
   }
 
-  // Computed property name gives the class (and stack traces) a proper name.
-  const modelClass: ModelClass = { [className]: class extends base {} }[className];
+  const tableName = table;
 
-  modelClass.tableName = table;
-  modelClass.idColumn = id;
-  // SAFETY: objection passes modifiers its query builder, which typed modifiers see through
-  // `Query`. It treats `null` like no modifiers.
-  modelClass.modifiers = modifiers as Modifiers;
-  modelClass.jsonAttributes = cols.filter(it => it.json).map(it => it.prop);
-  modelClass.createValidator = validate
-    ? () => new StandardSchemaValidator({ columns: cols })
-    : () => new StandardSchemaValidator({ columns: [] });
+  // Computed property name gives the class (and stack traces) a proper name.
+  // Class fields define own properties: assignments would invoke inherited setters
+  // or throw on the getter-only statics commonly used by classic models/plugins.
+  const modelClass: ModelClass = { [className]: class extends base {
+    static tableName = tableName;
+    static idColumn = id;
+    // SAFETY: objection passes modifiers its query builder, which typed modifiers see through
+    // `Query`. It treats `null` like no modifiers.
+    static modifiers = modifiers as Modifiers;
+    static jsonAttributes = cols.filter(it => it.json).map(it => it.prop);
+    static createValidator = validate
+      ? () => new StandardSchemaValidator({ columns: cols })
+      : () => new StandardSchemaValidator({ columns: [] });
+  } }[className];
 
   // SAFETY: the values are hook functions; names that aren't hooks throw below.
   const hookFns = hooks as Record<string, Hook>;

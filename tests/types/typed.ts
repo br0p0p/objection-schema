@@ -633,3 +633,95 @@ async function snakeCaseReference() {
   // @ts-expect-error the relation is `owner`, not `owner_id`
   snakeDb.Snake.query().withGraphFetched('owner_id');
 }
+
+// ----- real application migration patterns (tests/migrations/README.md) -----
+
+// Wiki.js uses getter-only class statics, string IDs and JSON settings. A classic
+// base can retain app methods/hooks while schema columns determine the new API.
+class WikiSettingBase extends Model {
+  static get tableName() { return 'settings'; }
+  static get idColumn() { return 'key'; }
+  static get jsonAttributes() { return ['value']; }
+}
+
+const WikiSetting = defineModel({
+  base: WikiSettingBase,
+  table: 'settings',
+  id: 'key',
+  columns: {
+    key: z.string(),
+    value: column(z.json()).json(),
+    updatedAt: z.string().optional(),
+  },
+});
+
+const wikiSetting = run(WikiSetting.query().findById('site'));
+
+expectType<Equal<typeof wikiSetting, Row<typeof WikiSetting> | undefined>>();
+
+WikiSetting.query().patch({ value: { v: ['en', 'fr'] } });
+
+// @ts-expect-error string primary key, not a generated numeric id
+WikiSetting.query().findById(1);
+
+// @ts-expect-error key is required on insert
+WikiSetting.query().insert({ value: { v: true } });
+
+// Conduit's favorites use a composite key; the feed needs a correlated aggregate
+// through the classic query escape hatch, but author/favorite graphs stay inferred.
+class ConduitArticleBase extends Model {
+  static get tableName() { return 'articles'; }
+}
+
+const ConduitUser = defineModel({
+  table: 'users',
+  columns: { id: column(z.number()).generated(), username: z.string() },
+});
+
+const ConduitArticle = defineModel({
+  base: ConduitArticleBase,
+  table: 'articles',
+  columns: {
+    id: column(z.number()).generated(),
+    userId: column(z.number()).references('User', 'id', { as: 'author' }),
+    slug: z.string(),
+    description: z.string().nullable().default(''),
+  },
+});
+
+const ConduitFavorite = defineModel({
+  table: 'favorites',
+  id: ['userId', 'articleId'],
+  columns: { userId: z.number(), articleId: z.number() },
+});
+
+const conduit = defineModels({ User: ConduitUser, Article: ConduitArticle, Favorite: ConduitFavorite }, {
+  Article: r => ({
+    favoritedBy: r.manyToMany('User', {
+      from: 'id',
+      to: 'id',
+      through: { table: 'favorites', from: 'articleId', to: 'userId' },
+    }),
+  }),
+});
+
+const conduitArticle = run(conduit.Article.query().withGraphFetched('[author, favoritedBy]').first());
+
+if (conduitArticle) {
+  expectType<Equal<typeof conduitArticle.author, Row<typeof ConduitUser> | null>>();
+  expectType<Equal<typeof conduitArticle.favoritedBy, Row<typeof ConduitUser>[]>>();
+}
+
+const conduitInsert = run(conduit.Article.query().insert({ userId: 1, slug: 'notes' }));
+
+expectType<Equal<typeof conduitInsert.description, string | null>>();
+
+conduit.Favorite.query().findById([1, 2]);
+
+// @ts-expect-error composite favorite id needs both parts
+conduit.Favorite.query().findById(1);
+
+// @ts-expect-error favorite id parts are numeric
+conduit.Favorite.query().findById(['ann', 2]);
+
+toQueryBuilder(conduit.Article.query()).select(toQueryBuilder(conduit.Article.relatedQuery('favoritedBy')).count().as('favoritesCount'));

@@ -196,6 +196,33 @@ describe('features', () => {
   });
 
   describe('model options', () => {
+    it('defines own statics over getter-only classic properties', async () => {
+      class Base extends Model {
+        static get tableName() { return 'unused'; }
+        static get idColumn() { return 'unused'; }
+        static get jsonAttributes() { return ['unused']; }
+        static get modifiers() { return { unused: () => {} }; }
+        static get createValidator() { throw new Error('base validator must not be read'); }
+      }
+
+      const Owner = defineModel({
+        base: Base,
+        table: 'owners',
+        columns: ownerColumns(),
+        modifiers: { named: q => q.where('name', 'A') },
+      });
+
+      const owner = await Owner.query().insert({ name: 'A' });
+      expect((await Owner.query().modify('named')).map(it => it.id)).to.eql([owner.id]);
+      expect(Owner.modelClass.idColumn).to.equal('id');
+      expect(Owner.modelClass.jsonAttributes).to.eql([]);
+      expect(() => Owner.validate({ name: '' })).to.throwError(err => expect(err).to.be.a(ValidationError));
+      expect(Base.tableName).to.equal('unused');
+      expect(Base.idColumn).to.equal('unused');
+      expect(Base.jsonAttributes).to.eql(['unused']);
+      expect(Object.keys(Base.modifiers)).to.eql(['unused']);
+    });
+
     it('`validate: false` keeps the types but skips runtime validation', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns(), validate: false });
 

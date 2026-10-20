@@ -171,6 +171,19 @@ export const { column } = defineModelNames('Person', 'Animal', 'Vet', 'Movie');
 | Infrastructure                | Global `Model.knex(knex)`, `transaction()`, `query(trx)`, `bindKnex()`, `ValidationError` / `NotFoundError`. Plugins and mixins via `defineModel({ base: mixin(Model, [plugin]) })`.         |
 | Escape hatch                  | `toQueryBuilder(query)` gives the full classic `QueryBuilder` type.                                                                                                                          |
 
+### Incremental migration
+
+Keep existing hooks and serializers with `defineModel({ base: ExistingModel, table, columns })`.
+The generated subclass shadows getter-only statics without changing the original class.
+Declare JSON columns explicitly, including attributes absent from the old `jsonSchema`.
+When new relations are declared, they replace the inherited `relationMappings`, rather than
+merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
+hook of the same name (they aren't automatically chained).
+
+[Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
+sources, executable migration slices, adaptations and bugs found. These are incremental
+model/query migrations to Objection 3, not full application ports.
+
 ## Validation
 
 Each column is validated with its own schema on `insert`, `insertGraph`, `upsertGraph`, `update`,
