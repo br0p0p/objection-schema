@@ -48,7 +48,7 @@ const people = await db.Person.query()
 |            |                                                                                                                                                   |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | objection  | `^3.0.0` (peer dependency). Tested against 3.0.0, 3.1.5, 3.5.0 and 3.9.1 (`pnpm run test:objection-versions`). objection 4.x isn't supported yet. |
-| Node       | Same as objection 3 (≥ 14) for the runtime; tests run on Node 20–24.                                                                              |
+| Node       | ≥ 18; tests run on Node 18–24.                                                                                                                    |
 | TypeScript | ≥ 5.0 for the typings (tests use 5.8). objection 3.0.x's own declarations need `skipLibCheck` on TypeScript 5.8.                                  |
 | Schemas    | Any Standard Schema library. Runtime has no schema-library dependency. Validation must be synchronous.                                            |
 | Databases  | Tested on sqlite, Postgres and MySQL. On Postgres, see [bigint ids](#postgres-bigint-ids).                                                        |
@@ -70,8 +70,17 @@ The ES module entry point re-exports the CommonJS implementation instead of bein
 so an app that mixes `require` and `import` gets one instance (no dual package hazard).
 objection 3.x is CommonJS either way.
 
-Since the repo is private, install it from GitHub with an authenticated git setup:
-`npm install github:br0p0p/objection-schema` (or `pnpm add github:br0p0p/objection-schema`).
+Since the repo is private, install it from a [GitHub release](https://github.com/br0p0p/objection-schema/releases):
+each one has the packed, built package attached. Download it with an authenticated
+[GitHub CLI](https://cli.github.com) and install the file:
+
+```bash
+gh release download v0.1.0 --repo br0p0p/objection-schema --pattern '*.tgz'
+npm install ./objection-schema-0.1.0.tgz   # or: pnpm add ./objection-schema-0.1.0.tgz
+```
+
+Commit the `.tgz` (e.g. in `vendor/`) so installs don't need GitHub access. Installing from the
+git repository itself doesn't work: it has the TypeScript source, not the build.
 
 ## Columns
 
@@ -249,10 +258,14 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
 The toolchain (Node and pnpm versions) is pinned in `mise.toml`; install [mise](https://mise.jdx.dev) and
 run `mise install`.
 
+The source is TypeScript in `lib/`, built with `tsc` into `dist/` (CommonJS, the ES module entry
+and the declarations), which is what the package publishes and what the tests run against.
+
 ```bash
 mise install
 pnpm install
 pnpm run check                   # lint (which includes formatting), then pnpm test: run this before pushing
+pnpm run build                   # lib/ -> dist/ (the test scripts build first on their own)
 pnpm test                        # runtime (CJS + ESM), types (node10 + nodenext), package exports
 pnpm run test:pg                 # runtime tests on Postgres (DB=pg; PG* variables, see tests/runtime/db.js)
 pnpm run test:mysql              # runtime tests on MySQL (DB=mysql; MYSQL_* variables)
@@ -275,7 +288,7 @@ fixes and these policy adjustments; runtime behavior and public type contracts a
 See the vendored
 [provenance and baseline](tools/oxlint/anti-slop/UPSTREAM.md) for details and update guidance.
 
-The invariants that changes must keep (runtime/types parity, Node 14 support, the 100% mutation
+The invariants that changes must keep (runtime/types parity, Node 18 support, the 100% mutation
 score, …) and the workflow for making a change are in [AGENTS.md](AGENTS.md), which is also what
 coding agents read. `CLAUDE.md` and `.claude/` configure Claude Code for this repo.
 
@@ -295,7 +308,8 @@ How the tests are layered:
   registries. Guard tests keep the generated inputs balanced between valid and invalid.
   `FC_NUM_RUNS` scales the number of runs.
 - **Type tests** (`tests/types`) assert exact inferred types and expected errors, and pin the
-  exact messages of relation errors via the `RelationErrors` type.
+  exact messages of relation errors via the `RelationErrors` type. They compile against the built
+  declarations in `dist/`, as users do.
 - **Mutation tests:**
   - Stryker mutates `lib/`; every mutant must be killed. The few behaviour-equivalent mutants
     (performance-only differences) are disabled in place, with the reason next to the code.

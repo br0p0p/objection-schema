@@ -5,7 +5,7 @@ import globals from 'globals';
 export default antfu(
   {
     // ESLint is also the formatter (antfu's stylistic rules; there is no Prettier). After a
-    // formatting change to typings/index.d.ts, update the patterns in scripts/mutate-types.js:
+    // formatting change to the typings in lib/, update the patterns in scripts/mutate-types.js:
     // they match the source verbatim, and the script fails on any that no longer match.
     stylistic: {
       semi: true,
@@ -37,6 +37,10 @@ export default antfu(
     rules: {
       // Uses inside functions that run later are fine; same-scope (TDZ) uses still fail.
       'no-use-before-define': ['error', { classes: false, functions: false, variables: false }],
+      'ts/no-use-before-define': [
+        'error',
+        { classes: false, functions: false, variables: false, typedefs: false },
+      ],
       // `modelClass` is the public name of a definition's generated class.
       'new-cap': [
         'error',
@@ -51,34 +55,41 @@ export default antfu(
   {
     files: ['lib/**'],
     rules: {
-      strict: ['error', 'global'],
       'node/no-unsupported-features/es-builtins': 'error',
       'node/no-unsupported-features/es-syntax': 'error',
       'node/no-unsupported-features/node-builtins': 'error',
-      // `Object.hasOwn` needs Node 16.9.
-      'e18e/prefer-object-has-own': 'off',
       // The error class is part of the API; switching to TypeError would be a breaking change.
       'unicorn/prefer-type-error': 'off',
       'no-restricted-syntax': [
         'error',
+        // Type-only imports are erased from the build (e.g. `knex` types in types.ts).
+        ...[
+          'ImportDeclaration[importKind!=\'type\']',
+          'ExportNamedDeclaration[source][exportKind!=\'type\']',
+          'ExportAllDeclaration[exportKind!=\'type\']',
+        ].map(node => ({
+          selector: `${node}[source.value!=/^(objection$|\\.\\/)/]`,
+          message:
+            'lib/ may only import objection (the peer dependency) and its own files. Schema libraries are supplied by users.',
+        })),
         {
           selector:
             'CallExpression[callee.name=\'require\'][arguments.0.value!=/^(objection$|\\.\\/)/]',
           message:
-            'lib/ may only require objection (the peer dependency) and its own files. Schema libraries are supplied by users.',
+            'lib/ may only import objection (the peer dependency) and its own files. Schema libraries are supplied by users.',
         },
       ],
     },
   },
   {
-    files: ['lib/**/*.mjs'],
+    files: ['lib/**/*.mts'],
     rules: {
       'no-restricted-syntax': [
         'error',
         {
           selector: 'ImportDeclaration[source.value!=\'./index.js\']',
           message:
-            'lib/index.mjs only re-exports the CommonJS implementation (one instance, no dual package hazard).',
+            'lib/index.mts only re-exports the CommonJS implementation (one instance, no dual package hazard).',
         },
       ],
     },
@@ -88,8 +99,10 @@ export default antfu(
   // (method parameters are bivariant, `{}` is load-bearing in conditional types,
   // interfaces and type aliases differ in assignability).
   {
-    files: ['typings/**', 'tests/types/**'],
+    files: ['lib/**/*.ts', 'tests/types/**'],
     rules: {
+      // The Standard Schema spec (copied into lib/types.ts as recommended) declares a namespace.
+      'ts/no-namespace': ['error', { allowDeclarations: true }],
       'ts/method-signature-style': 'off',
       'ts/no-empty-object-type': 'off',
       'ts/consistent-type-definitions': 'off',

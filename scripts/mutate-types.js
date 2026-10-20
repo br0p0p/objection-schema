@@ -12,10 +12,13 @@ const process = require('node:process');
 
 const root = path.resolve(__dirname, '..');
 
-const TYPES
-  = 'pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json';
+// The type tests check the built declarations, so each mutant is built first. A mutant that
+// breaks the build of lib/ still emits declarations; it only counts as caught if the type
+// tests fail on them.
+const BUILD = 'pnpm exec tsc -p tsconfig.json';
+const TYPES = `${BUILD}; pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json`;
 
-const D = 'typings/index.d.ts';
+const D = 'lib/types.ts';
 
 const mutants = [
   [
@@ -129,7 +132,7 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
-  ['typings/index.d.mts', `export * from './index.js';`, `export {};`, 'ESM types export nothing'],
+  ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
 ];
 
 function passes() {
@@ -138,7 +141,12 @@ function passes() {
 
     return true;
   }
-  catch {
+  catch (err) {
+    // Ctrl-C kills the type check too. Stop instead of counting the mutant as caught; the
+    // `finally` blocks below restore the sources and dist/.
+    if (err.signal)
+      throw err;
+
     return false;
   }
 }
@@ -148,34 +156,49 @@ if (!passes()) {
   process.exit(1);
 }
 
+// Ctrl-C goes to the whole process group. Keep this process alive: the type check it kills
+// throws in `passes()`, and the `finally` blocks restore the sources and dist/.
+process.on('SIGINT', () => {});
+
 let caught = 0;
 const problems = [];
 
-for (const [file, find, replace, description] of mutants) {
-  const filePath = path.join(root, file);
-  const original = fs.readFileSync(filePath, 'utf8');
+try {
+  for (const [file, find, replace, description] of mutants) {
+    const filePath = path.join(root, file);
+    const original = fs.readFileSync(filePath, 'utf8');
 
-  if (!original.includes(find)) {
-    problems.push(`pattern not found: ${description}`);
-    console.log(`  MISSING   ${description}`);
-    continue;
+    if (!original.includes(find)) {
+      problems.push(`pattern not found: ${description}`);
+      console.log(`  MISSING   ${description}`);
+      continue;
+    }
+
+    fs.writeFileSync(filePath, original.replace(find, replace));
+    let survived;
+
+    try {
+      survived = passes();
+    }
+    finally {
+      fs.writeFileSync(filePath, original);
+    }
+
+    console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
+
+    if (survived)
+      problems.push(`survived: ${description}`);
+    else caught += 1;
   }
-
-  fs.writeFileSync(filePath, original.replace(find, replace));
-  let survived;
-
+}
+finally {
+  // Leave dist/ built from the restored sources, not from the last mutant.
   try {
-    survived = passes();
+    execSync('pnpm run build', { cwd: root, stdio: 'pipe' });
   }
-  finally {
-    fs.writeFileSync(filePath, original);
+  catch (err) {
+    problems.push(`rebuilding dist/ failed, run \`pnpm run build\`: ${err.stderr || err}`);
   }
-
-  console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
-
-  if (survived)
-    problems.push(`survived: ${description}`);
-  else caught += 1;
 }
 
 console.log(`\n${caught}/${mutants.length} type mutants caught`);

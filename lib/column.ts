@@ -1,9 +1,40 @@
-'use strict';
+import type { ValidatedColumn } from './StandardSchemaValidator';
+import type { Column, DefaultFlags, ReferenceOptions, StandardSchemaV1 } from './types';
+import { isStandardSchema, validateSync } from './standardSchema';
 
-const { isStandardSchema, validateSync } = require('./standardSchema');
+/** The metadata of a `column()` at runtime. */
+export interface ColumnMeta {
+  readonly generated: boolean;
+  readonly hasDefault: boolean;
+  readonly json: boolean;
+  readonly references: Reference | null;
+}
+
+/** A `references()` foreign key at runtime. */
+export interface Reference {
+  readonly target: string;
+  readonly column: string;
+  readonly as: string | null;
+  readonly inverse: string | null;
+  readonly inverseKind: 'many' | 'one';
+}
+
+/** A `column()` at runtime. `Column` is its typed view. */
+export interface RuntimeColumn {
+  readonly '~column': ColumnMeta;
+  readonly schema: StandardSchemaV1;
+  generated: () => RuntimeColumn;
+  hasDefault: () => RuntimeColumn;
+  json: () => RuntimeColumn;
+  references: (target: string, column: string, options?: ReferenceOptions) => RuntimeColumn;
+}
+
+export interface NormalizedColumn extends ValidatedColumn {
+  readonly json: boolean;
+}
 
 // Stryker disable next-line ObjectLiteral: every flag is read for truthiness, so `{}` behaves the same.
-const DEFAULT_META = Object.freeze({
+const DEFAULT_META: ColumnMeta = Object.freeze({
   generated: false,
   hasDefault: false,
   json: false,
@@ -12,16 +43,25 @@ const DEFAULT_META = Object.freeze({
 
 // `column(schema)` wraps a Standard Schema with database related metadata. Each
 // modifier returns a new immutable column so that columns can be shared and reused.
+export function column<S extends StandardSchemaV1>(schema: S): Column<S>;
+export function column(schema: unknown): object {
+  return createColumn(schema, DEFAULT_META, null);
+}
+
 // `modelNames` restricts `references()` targets (see `defineModelNames`).
-function column(schema, meta = DEFAULT_META, modelNames = null) {
+function createColumn(
+  schema: unknown,
+  meta: ColumnMeta,
+  modelNames: readonly string[] | null,
+): RuntimeColumn {
   if (!isStandardSchema(schema)) {
     throw new Error(
       'column() expects a Standard Schema compliant schema (zod, valibot, arktype, ...)',
     );
   }
 
-  const with_ = patch =>
-    column(schema, Object.freeze(Object.assign({}, meta, patch)), modelNames);
+  const with_ = (patch: Partial<ColumnMeta>) =>
+    createColumn(schema, Object.freeze(Object.assign({}, meta, patch)), modelNames);
 
   return Object.freeze({
     '~column': meta,
@@ -34,7 +74,7 @@ function column(schema, meta = DEFAULT_META, modelNames = null) {
     json: () => with_({ json: true }),
     // A foreign key. `defineModels` derives a `belongsToOne` relation from it, and
     // an inverse relation on the target model when `inverse` is given.
-    references: (target, targetColumn, options = {}) => {
+    references: (target: string, targetColumn: string, options: ReferenceOptions = {}) => {
       if (modelNames && !modelNames.includes(target)) {
         throw new Error(
           `references(): unknown model "${target}". Expected one of: ${modelNames.join(', ')}`,
@@ -46,7 +86,11 @@ function column(schema, meta = DEFAULT_META, modelNames = null) {
   });
 }
 
-function createReference(target, column, { as = null, inverse = null } = {}) {
+function createReference(
+  target: unknown,
+  column: unknown,
+  { as = null, inverse = null }: { as?: string | null; inverse?: ReferenceOptions['inverse'] | null } = {},
+): Reference {
   if (typeof target !== 'string' || typeof column !== 'string') {
     throw new Error('references() expects a model name and a column name');
   }
@@ -69,12 +113,22 @@ function createReference(target, column, { as = null, inverse = null } = {}) {
   return Object.freeze({ target, column, as, inverse: inverseName, inverseKind });
 }
 
-// Declares the registry's model names up front so that `references()` targets can be
-// checked where they're written. They can't be derived from the registry itself: the
-// registry's type depends on the columns, so TypeScript would type the models as `any`.
-//
-//   export const { column } = defineModelNames('Person', 'Animal');
-function defineModelNames(...names) {
+/**
+ * Declares the registry's model names up front, so `references()` targets are checked
+ * (and autocompleted) where they're written. They can't be derived from the registry:
+ * its type depends on the columns, which would make TypeScript type the models as `any`.
+ *
+ * ```ts
+ * export const { column } = defineModelNames('Person', 'Animal');
+ * ```
+ */
+export function defineModelNames<const N extends readonly [string, ...string[]]>(
+  ...names: N
+): {
+  readonly names: N;
+  column<S extends StandardSchemaV1>(schema: S): Column<S, DefaultFlags, null, N[number]>;
+};
+export function defineModelNames(...names: unknown[]): object {
   if (names.length === 0 || !names.every(it => typeof it === 'string')) {
     throw new Error('defineModelNames() expects one or more model names');
   }
@@ -84,21 +138,25 @@ function defineModelNames(...names) {
 
   return Object.freeze({
     names: modelNames,
-    column: schema => column(schema, DEFAULT_META, modelNames),
+    column: (schema: unknown) => createColumn(schema, DEFAULT_META, modelNames),
   });
 }
 
-function isColumn(value) {
-  return value !== null && typeof value === 'object' && typeof value['~column'] === 'object';
+export function isColumn(value: unknown): value is RuntimeColumn {
+  // SAFETY: only read, and `~column` is checked before it's relied on.
+  const candidate = value as { '~column'?: unknown } | null;
+
+  return candidate !== null && typeof candidate === 'object' && typeof candidate['~column'] === 'object';
 }
 
-function normalizeColumns(columns) {
+export function normalizeColumns(columns: unknown): NormalizedColumn[] {
   if (!columns || typeof columns !== 'object') {
     throw new Error('defineModel: `columns` must be an object');
   }
 
   return Object.keys(columns).map((prop) => {
-    const input = columns[prop];
+    // SAFETY: `prop` is one of the object's own keys.
+    const input: unknown = (columns as Record<string, unknown>)[prop];
     let schema;
     let meta;
 
@@ -130,7 +188,7 @@ function normalizeColumns(columns) {
 // Find out once what the schema does with a missing value. This is how
 // required-ness and defaults are derived from the schema itself, mirroring
 // what the inferred `Insert` type says (`undefined extends Input` => optional).
-function probeUndefined(schema, prop) {
+function probeUndefined(schema: StandardSchemaV1, prop: string): ValidatedColumn['undefinedMode'] {
   const result = validateSync(schema, undefined, prop);
 
   // 'optional' vs 'default' only lets the validator skip re-validating `undefined` for
@@ -147,10 +205,3 @@ function probeUndefined(schema, prop) {
   }
   // Stryker restore BlockStatement,StringLiteral,ConditionalExpression
 }
-
-module.exports = {
-  column,
-  defineModelNames,
-  isColumn,
-  normalizeColumns,
-};

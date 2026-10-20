@@ -5,8 +5,10 @@
 // APIs interoperable. The types never mention classes; rows are plain object types
 // inferred from Standard Schema compliant column schemas.
 //
-// These declarations serve both the CommonJS (`require`) and the ES module (`import`)
-// entry points; `index.d.mts` re-exports them for the latter.
+// The functions are declared next to their implementations, as overloads that carry these
+// types. Their implementation signatures return `object`: the typed views have phantom
+// members (`'~types'`, `'~spec'`, ...) that don't exist at runtime. `index.ts` re-exports the
+// public types by name, so the helpers that are exported here only for lib/ stay internal.
 
 import type { Knex } from 'knex';
 import type {
@@ -24,7 +26,6 @@ import type {
   ReferenceBuilder,
   TransactionOrKnex,
   UpsertGraphOptions,
-  Validator,
   ValueBuilder,
 } from 'objection';
 
@@ -84,7 +85,7 @@ type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (
   ? I
   : never;
 
-type StrKeys<T> = keyof T & string;
+export type StrKeys<T> = keyof T & string;
 
 type IsNever<T> = [T] extends [never] ? true : false;
 
@@ -106,7 +107,7 @@ export interface ColumnFlags {
   json: boolean;
 }
 
-type DefaultFlags = { generated: false; hasDefault: false; json: false };
+export type DefaultFlags = { generated: false; hasDefault: false; json: false };
 
 type SetFlag<F extends ColumnFlags, K extends keyof ColumnFlags> = {
   [P in keyof ColumnFlags]: P extends K ? true : F[P];
@@ -939,7 +940,7 @@ export interface ModelDefinition<Sp extends ModelSpec = ModelSpec>
 }
 
 /** Brands used as constraints. Comparing full generic handles structurally is both slow and too strict. */
-type AnyModelDefinition = {
+export type AnyModelDefinition = {
   readonly isObjectionModelDefinition: true;
   readonly '~spec': ModelSpec;
 };
@@ -970,42 +971,6 @@ export interface ModelConfig<
   validate?: boolean;
 }
 
-export function defineModel<
-  const T extends string,
-  C extends Columns,
-  const Id extends StrKeys<C> | readonly StrKeys<C>[] = 'id' & StrKeys<C>,
-  M extends string = never,
->(
-  config: ModelConfig<T, C, Id, M>,
-): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M }>;
-
-export function column<S extends StandardSchemaV1>(schema: S): Column<S>;
-
-/**
- * Declares the registry's model names up front, so `references()` targets are checked
- * (and autocompleted) where they're written. They can't be derived from the registry:
- * its type depends on the columns, which would make TypeScript type the models as `any`.
- *
- * ```ts
- * export const { column } = defineModelNames('Person', 'Animal');
- * ```
- */
-export function defineModelNames<const N extends readonly [string, ...string[]]>(
-  ...names: N
-): {
-  readonly names: N;
-  column<S extends StandardSchemaV1>(schema: S): Column<S, DefaultFlags, null, N[number]>;
-};
-
-/** A column that only carries a type. Nothing is validated at runtime. */
-export function unchecked<T>(): StandardSchemaV1<T, T>;
-
-/** Whether a value is a `defineModel()` definition (or a handle from `defineModels()`). */
-export function isModelDefinition(value: unknown): value is AnyModelHandle;
-
-/** Identity at runtime. Turns a typed query into a classic `QueryBuilder`. */
-export function toQueryBuilder(query: AnyQuery): QueryBuilder<Model, any>;
-
 // ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
@@ -1021,7 +986,7 @@ type InstanceOf<C> = C extends abstract new (...args: any[]) => infer M
     : never
   : never;
 
-type ModelsInput = Record<string, AnyModelDefinition | ClassicModelClass>;
+export type ModelsInput = Record<string, AnyModelDefinition | ClassicModelClass>;
 
 type ColumnsOfInput<X> = X extends { '~spec': infer Sp extends ModelSpec }
   ? StrKeys<Sp['columns']>
@@ -1101,13 +1066,13 @@ export interface RelationBuilder<M extends ModelsInput, K extends keyof M> {
   ): RelationSpec<'one', T>;
 }
 
-type RelationSpecs = Record<string, RelationSpec<any, any, any, any>>;
+export type RelationSpecs = Record<string, RelationSpec<any, any, any, any>>;
 
 /**
  * Inferred as a reverse mapped type: `Rels` is the *return types* of the
  * callbacks, which lets TypeScript contextually type each callback's builder.
  */
-type RelationsInput<M extends ModelsInput, Rels> = {
+export type RelationsInput<M extends ModelsInput, Rels> = {
   [K in keyof Rels]: K extends keyof M
     ? M[K] extends AnyModelDefinition
       ? (r: RelationBuilder<M, K>) => Rels[K]
@@ -1188,15 +1153,6 @@ export interface RelationDeclaration<
   readonly '~owner': O;
   readonly '~relations': Rels;
 }
-
-/**
- * Declares relations next to a model. Pass the result to `defineModels` in an array.
- * The callback is called by `defineModels`, so circular imports between model files are fine.
- */
-export function relations<
-  O extends AnyModelDefinition,
-  Rels extends Record<string, ModelRelationSpec<any, any, any, any>>,
->(owner: O, define: (r: ModelRelationBuilder<O>) => Rels): RelationDeclaration<O, Rels>;
 
 type Same<A, B>
   = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false;
@@ -1389,7 +1345,7 @@ type RelationErrorsOf<M, D extends readonly unknown[], Rels>
     | DeclarationErrors<M, D>
     | NameErrors<M, Rels, D>;
 
-type CheckRelations<M, Rels, D extends readonly unknown[]>
+export type CheckRelations<M, Rels, D extends readonly unknown[]>
   = RelationErrorsOf<M, D, Rels> extends infer E
     ? [E] extends [never]
         ? unknown
@@ -1421,29 +1377,6 @@ export type Models<M extends ModelsInput, Rels, D extends readonly unknown[] = [
       ? Pick<ModelDefinition<Sp>, 'columns' | 'idColumn' | '~spec'>
       : {});
 };
-
-/**
- * Creates the registry. Relations can come from `column().references()`, from
- * `relations(Model, ...)` declarations (array) and from a keyed object, in any
- * combination. Defining a relation name twice, or naming a relation like a
- * column, is a type error (and a runtime error).
- *
- * A definition can be part of one registry only (its relations are set on its model
- * class); passing it to a second `defineModels` call throws.
- */
-export function defineModels<
-  M extends ModelsInput,
-  const D extends readonly RelationDeclaration[],
-  Rels extends { [K in keyof M]?: RelationSpecs } = {},
->(
-  models: M & CheckRelations<M, Rels, D>,
-  declarations: D,
-  relations?: RelationsInput<M, Rels>,
-): Models<M, Rels, D>;
-export function defineModels<
-  M extends ModelsInput,
-  Rels extends { [K in keyof M]?: RelationSpecs } = {},
->(models: M & CheckRelations<M, Rels, []>, relations?: RelationsInput<M, Rels>): Models<M, Rels>;
 
 // ---------------------------------------------------------------------------
 // Inference helpers
@@ -1477,5 +1410,3 @@ export type RowWithGraph<
   RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
   & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
 >;
-
-export class StandardSchemaValidator extends Validator {}

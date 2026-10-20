@@ -1,18 +1,79 @@
-'use strict';
-
-const {
-  HasOneRelation,
-  HasManyRelation,
-  ManyToManyRelation,
+import type { Model, QueryBuilder, RelationMapping, RelationMappings, RelationType } from 'objection';
+import type { Reference } from './column';
+import type { RuntimeHandle } from './defineModel';
+import type { ModelClass } from './objection';
+import type {
+  AnyModelDefinition,
+  AnyQuery,
+  CheckRelations,
+  ModelRelationBuilder,
+  ModelRelationSpec,
+  Models,
+  ModelsInput,
+  RelationDeclaration,
+  RelationsInput,
+  RelationSpecs,
+} from './types';
+import { classicModelHandle, isModelHandle } from './defineModel';
+import {
   BelongsToOneRelation,
+  HasManyRelation,
+  HasOneRelation,
   HasOneThroughRelation,
-} = require('objection');
+  isModelClass,
+  ManyToManyRelation,
+} from './objection';
 
-const { isModelDefinition, classicModelHandle } = require('./defineModel');
+type JoinColumns = string | readonly string[];
+
+interface Join {
+  from: JoinColumns;
+  to: JoinColumns;
+  through?: { table: string; from: JoinColumns; to: JoinColumns; extra?: unknown };
+}
+
+interface RelationOptions {
+  modify?: RelationMapping<Model>['modify'];
+  beforeInsert?: RelationMapping<Model>['beforeInsert'];
+}
+
+/** What the relation builders return: a relation to a registry key. */
+interface Spec {
+  relation: RelationType;
+  target: string;
+  join: Join;
+  opt: RelationOptions;
+}
+
+type RelationMethod = (target: string, join: Join, opt?: RelationOptions) => Spec;
+
+type Builder = Readonly<Record<string, RelationMethod>>;
+
+type Specs = Record<string, Spec>;
+
+interface Declaration {
+  readonly isObjectionRelationDeclaration: true;
+  readonly owner: RuntimeHandle;
+  readonly define: (builder: Readonly<Record<string, (target: unknown, join: Join, opt?: RelationOptions) => Spec>>) => Specs;
+}
+
+interface Entry {
+  definition: RuntimeHandle | null;
+  modelClass: ModelClass;
+  columns: RuntimeHandle['columns'];
+}
+
+interface Registry {
+  byKey: Record<string, Entry>;
+  handles: Record<string, RuntimeHandle>;
+  keyOf: (model: unknown) => string | undefined;
+}
+
+type Add = (ownerKey: string, name: string, spec: Spec, source: string) => void;
 
 // The model classes of definitions that are part of a registry. Relations are set on the
 // class itself, so a second registry would silently replace the first one's relations.
-const registered = new WeakSet();
+const registered = new WeakSet<ModelClass>();
 
 // Relations are declared outside `defineModel()` so that models can reference each
 // other (and themselves) without the circular type inference problems that a
@@ -26,12 +87,38 @@ const registered = new WeakSet();
 //
 // Defining the same relation name twice for a model is an error, as is giving a
 // relation the name of one of the model's columns.
-function defineModels(models, ...sources) {
+
+/**
+ * Creates the registry. Relations can come from `column().references()`, from
+ * `relations(Model, ...)` declarations (array) and from a keyed object, in any
+ * combination. Defining a relation name twice, or naming a relation like a
+ * column, is a type error (and a runtime error).
+ *
+ * A definition can be part of one registry only (its relations are set on its model
+ * class); passing it to a second `defineModels` call throws.
+ */
+export function defineModels<
+  M extends ModelsInput,
+  const D extends readonly RelationDeclaration[],
+  Rels extends { [K in keyof M]?: RelationSpecs } = {},
+>(
+  models: M & CheckRelations<M, Rels, D>,
+  declarations: D,
+  relations?: RelationsInput<M, Rels>,
+): Models<M, Rels, D>;
+export function defineModels<
+  M extends ModelsInput,
+  Rels extends { [K in keyof M]?: RelationSpecs } = {},
+>(models: M & CheckRelations<M, Rels, []>, relations?: RelationsInput<M, Rels>): Models<M, Rels>;
+export function defineModels(
+  models: Record<string, unknown>,
+  ...sources: unknown[]
+): object {
   const { declarations, relations } = parseSources(sources);
   const registry = createRegistry(models);
-  const collected = Object.create(null);
+  const collected: Record<string, Record<string, { spec: Spec; source: string }>> = Object.create(null);
 
-  const add = (ownerKey, name, spec, source) => {
+  const add: Add = (ownerKey, name, spec, source) => {
     const owner = registry.byKey[ownerKey];
 
     if (!owner.definition) {
@@ -40,7 +127,7 @@ function defineModels(models, ...sources) {
       );
     }
 
-    if (owner.columns && Object.prototype.hasOwnProperty.call(owner.columns, name)) {
+    if (owner.columns && Object.hasOwn(owner.columns, name)) {
       throw new Error(
         `defineModels: relation "${ownerKey}.${name}" (${source}) has the same name as a column of "${ownerKey}"`,
       );
@@ -63,7 +150,9 @@ function defineModels(models, ...sources) {
     const { columns } = registry.byKey[ownerKey];
 
     for (const prop of Object.keys(columns || {})) {
-      const ref = columns[prop] && columns[prop]['~column'] && columns[prop]['~column'].references;
+      // SAFETY: `columns` is non-null here, since a null one has no keys to loop over.
+      const col = (columns as NonNullable<typeof columns>)[prop];
+      const ref = col && col['~column'] && col['~column'].references;
 
       if (ref) {
         addReferenceRelations(registry, ownerKey, prop, ref, add);
@@ -106,7 +195,7 @@ function defineModels(models, ...sources) {
     const relationsOfOwner = collected[ownerKey];
 
     ownerClass.relationMappings = () => {
-      const mappings = {};
+      const mappings: RelationMappings = {};
 
       for (const name of Object.keys(relationsOfOwner)) {
         mappings[name] = toRelationMapping(
@@ -130,13 +219,21 @@ function defineModels(models, ...sources) {
   return registry.handles;
 }
 
-// `relations(Person, (r) => ({ pets: r.hasMany(Animal, { from: 'id', to: 'ownerId' }) }))`
-//
-// Unlike the keyed form, targets are definitions (or classic classes) instead of
-// registry names, so declarations can live next to their models. The callback is
-// only called by `defineModels`, which keeps circular imports between model files safe.
-function relations(owner, define) {
-  if (!isModelDefinition(owner)) {
+/**
+ * Declares relations next to a model. Pass the result to `defineModels` in an array.
+ * The callback is called by `defineModels`, so circular imports between model files are fine.
+ *
+ * `relations(Person, (r) => ({ pets: r.hasMany(Animal, { from: 'id', to: 'ownerId' }) }))`
+ *
+ * Unlike the keyed form, targets are definitions (or classic classes) instead of
+ * registry names, so declarations can live next to their models.
+ */
+export function relations<
+  O extends AnyModelDefinition,
+  Rels extends Record<string, ModelRelationSpec<any, any, any, any>>,
+>(owner: O, define: (r: ModelRelationBuilder<O>) => Rels): RelationDeclaration<O, Rels>;
+export function relations(owner: unknown, define: unknown): object {
+  if (!isModelHandle(owner)) {
     throw new Error('relations() expects a defineModel() definition as its first argument');
   }
 
@@ -144,11 +241,17 @@ function relations(owner, define) {
     throw new Error('relations() expects a function as its second argument');
   }
 
-  return Object.freeze({ isObjectionRelationDeclaration: true, owner, define });
+  // SAFETY: `define` is the user's callback, typed by the public overload above.
+  return Object.freeze({ isObjectionRelationDeclaration: true, owner, define: define as Declaration['define'] });
 }
 
-function parseSources(sources) {
-  let declarations = [];
+interface Sources {
+  declarations: Declaration[];
+  relations: Record<string, (builder: Builder) => Specs>;
+}
+
+function parseSources(sources: unknown[]): Sources {
+  let declarations: Declaration[] = [];
   let relations = {};
 
   for (const source of sources) {
@@ -178,15 +281,15 @@ function parseSources(sources) {
   return { declarations, relations };
 }
 
-function createRegistry(models) {
-  const byKey = Object.create(null);
-  const keys = new Map();
-  const handles = {};
+function createRegistry(models: Record<string, unknown>): Registry {
+  const byKey: Record<string, Entry> = Object.create(null);
+  const keys = new Map<unknown, string>();
+  const handles: Record<string, RuntimeHandle> = {};
 
   for (const key of Object.keys(models)) {
     const model = models[key];
 
-    if (isModelDefinition(model)) {
+    if (isModelHandle(model)) {
       if (keys.has(model)) {
         throw new Error(
           `defineModels: "${key}" is the same definition as "${keys.get(model)}". Call defineModel() again for a second model over the same table.`,
@@ -203,7 +306,7 @@ function createRegistry(models) {
       keys.set(model, key);
       handles[key] = model;
     }
-    else if (model && model.isObjectionModelClass) {
+    else if (isModelClass(model)) {
       byKey[key] = { definition: null, modelClass: model, columns: null };
       keys.set(model, key);
       handles[key] = classicModelHandle(model);
@@ -218,7 +321,13 @@ function createRegistry(models) {
   return { byKey, handles, keyOf: model => keys.get(model) };
 }
 
-function addReferenceRelations(registry, ownerKey, prop, ref, add) {
+function addReferenceRelations(
+  registry: Registry,
+  ownerKey: string,
+  prop: string,
+  ref: Reference,
+  add: Add,
+): void {
   const source = `${ownerKey}.${prop}.references()`;
   const target = registry.byKey[ref.target];
 
@@ -226,7 +335,7 @@ function addReferenceRelations(registry, ownerKey, prop, ref, add) {
     throw new Error(`defineModels: ${source} points to unknown model "${ref.target}"`);
   }
 
-  if (target.columns && !Object.prototype.hasOwnProperty.call(target.columns, ref.column)) {
+  if (target.columns && !Object.hasOwn(target.columns, ref.column)) {
     throw new Error(
       `defineModels: ${source} points to unknown column "${ref.target}.${ref.column}"`,
     );
@@ -258,24 +367,24 @@ function addReferenceRelations(registry, ownerKey, prop, ref, add) {
   }
 }
 
-function forwardName(prop) {
+function forwardName(prop: string): string | null {
   // Stryker disable next-line Regex: without `^` the leftmost match still starts at 0.
   const match = /^(.+?)(?:Id|_id)$/.exec(prop);
 
   return match ? match[1] : null;
 }
 
-const relationBuilder = Object.freeze({
+const relationBuilder: Builder = Object.freeze({
   hasMany: (target, join, opt) => spec(HasManyRelation, target, join, opt),
   hasOne: (target, join, opt) => spec(HasOneRelation, target, join, opt),
   belongsToOne: (target, join, opt) => spec(BelongsToOneRelation, target, join, opt),
   manyToMany: (target, join, opt) => spec(ManyToManyRelation, target, join, opt),
   hasOneThrough: (target, join, opt) => spec(HasOneThroughRelation, target, join, opt),
-});
+} satisfies Builder);
 
 // Same as `relationBuilder`, but targets are models instead of registry names.
-function createDeclarationBuilder(registry, ownerKey) {
-  const keyOf = (target) => {
+function createDeclarationBuilder(registry: Registry, ownerKey: string): Parameters<Declaration['define']>[0] {
+  const keyOf = (target: unknown) => {
     const key = registry.keyOf(target);
 
     if (!key) {
@@ -287,7 +396,7 @@ function createDeclarationBuilder(registry, ownerKey) {
     return key;
   };
 
-  const builder = {};
+  const builder: Record<string, (target: unknown, join: Join, opt?: RelationOptions) => Spec> = {};
 
   for (const method of Object.keys(relationBuilder)) {
     builder[method] = (target, join, opt) => relationBuilder[method](keyOf(target), join, opt);
@@ -296,15 +405,23 @@ function createDeclarationBuilder(registry, ownerKey) {
   return Object.freeze(builder);
 }
 
-function describe(model) {
-  return (model && model.name) || String(model);
+function describe(model: unknown): string {
+  // SAFETY: only read; models, classes and definitions all have a `name`.
+  const named = model as { name?: string } | null | undefined;
+
+  return (named && named.name) || String(model);
 }
 
-function spec(relation, target, join, opt = {}) {
+function spec(relation: RelationType, target: string, join: Join, opt: RelationOptions = {}): Spec {
   return { relation, target, join, opt };
 }
 
-function toRelationMapping(ownerClass, { relation, target, join, opt }, registry, ownerKey) {
+function toRelationMapping(
+  ownerClass: ModelClass,
+  { relation, target, join, opt }: Spec,
+  registry: Registry,
+  ownerKey: string,
+): RelationMapping<Model> {
   const targetEntry = registry.byKey[target];
 
   if (!targetEntry) {
@@ -313,7 +430,7 @@ function toRelationMapping(ownerClass, { relation, target, join, opt }, registry
 
   const targetClass = targetEntry.modelClass;
 
-  const mapping = {
+  const mapping: RelationMapping<Model> = {
     relation,
     modelClass: targetClass,
     join: {
@@ -327,7 +444,8 @@ function toRelationMapping(ownerClass, { relation, target, join, opt }, registry
     mapping.join.through = {
       from: qualify(table, from),
       to: qualify(table, to),
-      extra,
+      // SAFETY: passed on to objection as given; the typed builders only accept what it takes.
+      extra: extra as NonNullable<RelationMapping<Model>['join']['through']>['extra'],
     };
   }
 
@@ -344,18 +462,12 @@ function toRelationMapping(ownerClass, { relation, target, join, opt }, registry
   return mapping;
 }
 
-function qualify(table, cols) {
+function qualify(table: string, cols: JoinColumns): string | string[] {
   return Array.isArray(cols) ? cols.map(col => `${table}.${col}`) : `${table}.${cols}`;
 }
 
-// Identity at runtime. In TypeScript it turns a typed query back into a classic
-// `QueryBuilder` for using APIs that the typed surface doesn't cover (yet).
-function toQueryBuilder(query) {
+/** Identity at runtime. Turns a typed query into a classic `QueryBuilder`. */
+export function toQueryBuilder(query: AnyQuery): QueryBuilder<Model, any>;
+export function toQueryBuilder<Q>(query: Q): Q {
   return query;
 }
-
-module.exports = {
-  defineModels,
-  relations,
-  toQueryBuilder,
-};

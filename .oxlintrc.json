@@ -5,6 +5,7 @@
   },
   "ignorePatterns": [
     "node_modules/**",
+    "dist/**",
     "reports/**",
     ".stryker-tmp/**",
     "coverage/**",

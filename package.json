@@ -17,24 +17,23 @@
   "exports": {
     ".": {
       "import": {
-        "types": "./typings/index.d.mts",
-        "default": "./lib/index.mjs"
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
       },
       "require": {
-        "types": "./typings/index.d.ts",
-        "default": "./lib/index.js"
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
       }
     },
     "./package.json": "./package.json"
   },
-  "main": "./lib/index.js",
-  "types": "./typings/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "lib",
-    "typings"
+    "dist"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "devEngines": {
     "packageManager": {
@@ -44,25 +43,30 @@
     }
   },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
     "check": "pnpm run lint && pnpm test",
-    "test": "pnpm run test:runtime && pnpm run test:types && pnpm run test:package",
-    "test:runtime": "mocha \"tests/runtime/**/*.test.{js,mjs}\"",
-    "test:types": "tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
-    "test:package": "pnpm pack --out node_modules/.cache/package.tgz && attw node_modules/.cache/package.tgz",
+    "test": "pnpm run build && pnpm run test:runtime:built && pnpm run test:types:built && pnpm run test:package:built",
+    "test:runtime": "pnpm run build && pnpm run test:runtime:built",
+    "test:runtime:built": "mocha \"tests/runtime/**/*.test.{js,mjs}\"",
+    "test:types": "pnpm run build && pnpm run test:types:built",
+    "test:types:built": "tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
+    "test:package": "pnpm run build && pnpm run test:package:built",
+    "test:package:built": "pnpm pack --ignore-scripts --out node_modules/.cache/package.tgz && attw node_modules/.cache/package.tgz",
     "test:pg": "DB=pg pnpm run test:runtime",
     "test:mysql": "DB=mysql pnpm run test:runtime",
     "test:pack": "node scripts/test-pack.js",
-    "test:properties": "mocha --timeout 60000 tests/runtime/properties.test.js",
+    "test:properties": "pnpm run build && mocha --timeout 60000 tests/runtime/properties.test.js",
     "test:objection-versions": "node scripts/test-objection-versions.js",
     "test:mutations": "stryker run",
     "test:mutations:types": "node scripts/mutate-types.js",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "lint:anti-slop": "oxlint --max-warnings 0 .",
-    "bench": "node bench/compare.js",
-    "bench:validation": "node bench/zod-cost.js",
-    "bench:typecheck": "node bench/tooling/typecheck-scale.js",
-    "bench:completions": "node bench/tooling/completions.js"
+    "bench": "pnpm run build && node bench/compare.js",
+    "bench:validation": "pnpm run build && node bench/zod-cost.js",
+    "bench:typecheck": "pnpm run build && node bench/tooling/typecheck-scale.js",
+    "bench:completions": "pnpm run build && node bench/tooling/completions.js"
   },
   "peerDependencies": {
     "objection": "^3.0.0"
