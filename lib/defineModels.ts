@@ -194,20 +194,27 @@ export function defineModels(
     const ownerClass = registry.byKey[ownerKey].modelClass;
     const relationsOfOwner = collected[ownerKey];
 
-    ownerClass.relationMappings = () => {
-      const mappings: RelationMappings = {};
+    // Shadow getter-only mappings on a classic base without mutating that base.
+    // Keep the property replaceable, like an ordinary static class field.
+    Object.defineProperty(ownerClass, 'relationMappings', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: () => {
+        const mappings: RelationMappings = {};
 
-      for (const name of Object.keys(relationsOfOwner)) {
-        mappings[name] = toRelationMapping(
-          ownerClass,
-          relationsOfOwner[name].spec,
-          registry,
-          ownerKey,
-        );
-      }
+        for (const name of Object.keys(relationsOfOwner)) {
+          mappings[name] = toRelationMapping(
+            ownerClass,
+            relationsOfOwner[name].spec,
+            registry,
+            ownerKey,
+          );
+        }
 
-      return mappings;
-    };
+        return mappings;
+      },
+    });
   }
 
   // Only once the registry is complete, so that fixing an error and calling again works.
