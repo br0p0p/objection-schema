@@ -34,9 +34,12 @@ To try another Node version without editing `mise.toml`:
 | `pnpm run test:objection-versions [3.0.0 3.5.0]` | runtime + types against several objection 3.x releases              | ~1 min |
 | `FC_NUM_RUNS=1000 pnpm run test:properties`      | property tests with more runs                                       | varies |
 
-`pnpm test` is runtime + types + package exports (attw). Each of these builds first, so they never
-test a stale `dist/`; a bare `pnpm exec mocha` doesn't, so run `pnpm run build` after editing `lib/`. CI (`.github/workflows/`) runs lint,
-`pnpm test` on Node 20/22/24, the runtime tests on Postgres and MySQL, `test:pack`, objection
+`pnpm test` builds once, then runs runtime + types + package exports (attw). `test:runtime`,
+`test:types` and `test:package` each build first too, so none of them tests a stale `dist/`; the
+`…:built` variants and a bare `pnpm exec mocha` don't, so run `pnpm run build` after editing `lib/`.
+Releases: push a `v<version>` tag matching `package.json`; `release.yml` attaches the packed
+package to a GitHub release, which is how it's installed (the git repo has no `dist/`). CI (`.github/workflows/`) runs lint,
+`pnpm test` on Node 18/20/22/24, the runtime tests on Postgres and MySQL, `test:pack`, objection
 versions, and both mutation suites on pull requests.
 
 ## Layout
@@ -88,9 +91,9 @@ catches each one is named here.
    (`pnpm run lint:anti-slop` checks), and objection's undeclared runtime exports come from
    `lib/objection.ts`.
 4. **`lib/` runtime constraints** (enforced by `eslint.config.mjs` and `tsconfig.json`):
-   - It runs on Node ≥ 14, because `engines` follows objection 3. CI only runs 20–24, so the lint is
-     the only guard: no `Object.hasOwn`, `Array.prototype.at`, `??=`, `structuredClone`, … .
-     `tsc` targets es2020 (what Node 14 runs as is), with `lib: ["es2020"]`.
+   - It runs on Node ≥ 18 (`engines`), and CI tests 18–24. The lint flags built-ins newer than
+     that (eslint-plugin-n reads `engines`), and `tsc` targets es2022 (what Node 18 runs as is),
+     with `lib: ["es2022"]`.
    - It may only import `objection` (the peer dependency) and its own files; type-only imports
      (`knex` types) are erased. Schema libraries come from users, so never import zod or valibot
      in `lib/`.
@@ -147,8 +150,7 @@ catches each one is named here.
   tsconfigs), YAML and the code blocks in Markdown (mark an intentional fragment with
   `<!-- eslint-skip -->`); Markdown prose isn't reformatted. The overrides in `eslint.config.mjs`
   each say why they exist. They protect the invariants above, so don't flip one back to antfu's
-  default to silence a finding. For example, `e18e/prefer-object-has-own` is off in `lib/`
-  because `Object.hasOwn` needs Node 16.9, and the type-semantics rules (`method-signature-style`,
+  default to silence a finding. For example, the type-semantics rules (`method-signature-style`,
   …) are off for the TypeScript in `lib/`.
   Scripts import `process` from `node:process`.
 - **Reformatting the typings breaks type mutants.** `scripts/mutate-types.js` matches exact text of

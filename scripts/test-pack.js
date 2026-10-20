@@ -24,8 +24,13 @@ function run(cmd, args, cwd = dir) {
 const write = (file, content) => fs.writeFileSync(path.join(dir, file), content.trimStart());
 
 try {
+  // Built first instead of by `prepack`, whose output would end up in front of the JSON.
+  run('pnpm', ['run', 'build'], root);
+
   // The package contains only what users need.
-  const packed = JSON.parse(run('pnpm', ['pack', '--json', '--pack-destination', dir], root));
+  const packed = JSON.parse(
+    run('pnpm', ['pack', '--json', '--ignore-scripts', '--pack-destination', dir], root),
+  );
 
   const unexpected = packed.files
     .map(it => it.path)

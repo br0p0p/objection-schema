@@ -127,7 +127,7 @@ export function defineModels(
       );
     }
 
-    if (owner.columns && Object.prototype.hasOwnProperty.call(owner.columns, name)) {
+    if (owner.columns && Object.hasOwn(owner.columns, name)) {
       throw new Error(
         `defineModels: relation "${ownerKey}.${name}" (${source}) has the same name as a column of "${ownerKey}"`,
       );
@@ -335,7 +335,7 @@ function addReferenceRelations(
     throw new Error(`defineModels: ${source} points to unknown model "${ref.target}"`);
   }
 
-  if (target.columns && !Object.prototype.hasOwnProperty.call(target.columns, ref.column)) {
+  if (target.columns && !Object.hasOwn(target.columns, ref.column)) {
     throw new Error(
       `defineModels: ${source} points to unknown column "${ref.target}.${ref.column}"`,
     );

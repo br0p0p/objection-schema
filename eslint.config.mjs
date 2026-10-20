@@ -58,8 +58,6 @@ export default antfu(
       'node/no-unsupported-features/es-builtins': 'error',
       'node/no-unsupported-features/es-syntax': 'error',
       'node/no-unsupported-features/node-builtins': 'error',
-      // `Object.hasOwn` needs Node 16.9.
-      'e18e/prefer-object-has-own': 'off',
       // The error class is part of the API; switching to TypeError would be a breaking change.
       'unicorn/prefer-type-error': 'off',
       'no-restricted-syntax': [

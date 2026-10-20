@@ -141,7 +141,12 @@ function passes() {
 
     return true;
   }
-  catch {
+  catch (err) {
+    // Ctrl-C kills the type check too. Stop instead of counting the mutant as caught; the
+    // `finally` blocks below restore the sources and dist/.
+    if (err.signal)
+      throw err;
+
     return false;
   }
 }
@@ -151,38 +156,50 @@ if (!passes()) {
   process.exit(1);
 }
 
+// Ctrl-C goes to the whole process group. Keep this process alive: the type check it kills
+// throws in `passes()`, and the `finally` blocks restore the sources and dist/.
+process.on('SIGINT', () => {});
+
 let caught = 0;
 const problems = [];
 
-for (const [file, find, replace, description] of mutants) {
-  const filePath = path.join(root, file);
-  const original = fs.readFileSync(filePath, 'utf8');
+try {
+  for (const [file, find, replace, description] of mutants) {
+    const filePath = path.join(root, file);
+    const original = fs.readFileSync(filePath, 'utf8');
 
-  if (!original.includes(find)) {
-    problems.push(`pattern not found: ${description}`);
-    console.log(`  MISSING   ${description}`);
-    continue;
+    if (!original.includes(find)) {
+      problems.push(`pattern not found: ${description}`);
+      console.log(`  MISSING   ${description}`);
+      continue;
+    }
+
+    fs.writeFileSync(filePath, original.replace(find, replace));
+    let survived;
+
+    try {
+      survived = passes();
+    }
+    finally {
+      fs.writeFileSync(filePath, original);
+    }
+
+    console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
+
+    if (survived)
+      problems.push(`survived: ${description}`);
+    else caught += 1;
   }
-
-  fs.writeFileSync(filePath, original.replace(find, replace));
-  let survived;
-
-  try {
-    survived = passes();
-  }
-  finally {
-    fs.writeFileSync(filePath, original);
-  }
-
-  console.log(`  ${survived ? 'SURVIVED' : 'caught  '}  ${description}`);
-
-  if (survived)
-    problems.push(`survived: ${description}`);
-  else caught += 1;
 }
-
-// Leave dist/ built from the restored sources, not from the last mutant.
-execSync(BUILD, { cwd: root, stdio: 'pipe' });
+finally {
+  // Leave dist/ built from the restored sources, not from the last mutant.
+  try {
+    execSync('pnpm run build', { cwd: root, stdio: 'pipe' });
+  }
+  catch (err) {
+    problems.push(`rebuilding dist/ failed, run \`pnpm run build\`: ${err.stderr || err}`);
+  }
+}
 
 console.log(`\n${caught}/${mutants.length} type mutants caught`);
 

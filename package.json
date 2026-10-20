@@ -33,7 +33,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "devEngines": {
     "packageManager": {
@@ -44,13 +44,15 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
-    "prepare": "tsc -p tsconfig.json",
     "prepack": "pnpm run build",
     "check": "pnpm run lint && pnpm test",
-    "test": "pnpm run test:runtime && pnpm run test:types && pnpm run test:package",
-    "test:runtime": "pnpm run build && mocha \"tests/runtime/**/*.test.{js,mjs}\"",
-    "test:types": "pnpm run build && tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
-    "test:package": "pnpm pack --out node_modules/.cache/package.tgz && attw node_modules/.cache/package.tgz",
+    "test": "pnpm run build && pnpm run test:runtime:built && pnpm run test:types:built && pnpm run test:package:built",
+    "test:runtime": "pnpm run build && pnpm run test:runtime:built",
+    "test:runtime:built": "mocha \"tests/runtime/**/*.test.{js,mjs}\"",
+    "test:types": "pnpm run build && pnpm run test:types:built",
+    "test:types:built": "tsc -p tests/types/tsconfig.json && tsc -p tests/types/tsconfig.nodenext.json",
+    "test:package": "pnpm run build && pnpm run test:package:built",
+    "test:package:built": "pnpm pack --ignore-scripts --out node_modules/.cache/package.tgz && attw node_modules/.cache/package.tgz",
     "test:pg": "DB=pg pnpm run test:runtime",
     "test:mysql": "DB=mysql pnpm run test:runtime",
     "test:pack": "node scripts/test-pack.js",
