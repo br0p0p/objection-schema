@@ -183,6 +183,16 @@ describe('features', () => {
         defineModel({ table: 'owners', columns: ownerColumns(), hooks: { beforeSave() {} } }),
       ).to.throwError(/unknown hook "beforeSave"/);
     });
+
+    it('rejects hook names that are only inherited from Object.prototype', () => {
+      for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+        const hooks = Object.defineProperty({}, name, { value() {}, enumerable: true });
+
+        expect(() => defineModel({ table: 'owners', columns: ownerColumns(), hooks })).to.throwError(
+          new RegExp(`unknown hook "${name}"`),
+        );
+      }
+    });
   });
 
   describe('model options', () => {
