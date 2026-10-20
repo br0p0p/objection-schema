@@ -146,7 +146,7 @@ export function defineModel(config: RuntimeConfig): object {
   const hookFns = hooks as Record<string, Hook>;
 
   for (const hookName of Object.keys(hookFns)) {
-    if (!HOOKS[hookName]) {
+    if (!Object.hasOwn(HOOKS, hookName)) {
       throw new Error(`defineModel(${className}): unknown hook "${hookName}"`);
     }
 
