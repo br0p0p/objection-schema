@@ -154,8 +154,8 @@ describe(`databases (${client})`, () => {
 
     const fetched = await db.Customer.query()
       .findById(inserted.id)
-      .withGraphFetched('orders(orderById).products')
-      .modifiers({ orderById: q => q.orderBy('id') });
+      .withGraphFetched('orders(bySku).products')
+      .modifiers({ bySku: q => q.orderBy('sku') });
 
     expect(fetched.orders.map(it => it.sku)).to.eql(['a', 'b']);
     expect(fetched.orders[0].products[0]).to.have.property('quantity', 2);
@@ -168,8 +168,8 @@ describe(`databases (${client})`, () => {
 
     const after = await db.Customer.query()
       .findById(inserted.id)
-      .withGraphFetched('orders(orderById).products')
-      .modifiers({ orderById: q => q.orderBy('id') });
+      .withGraphFetched('orders(bySku).products')
+      .modifiers({ bySku: q => q.orderBy('sku') });
 
     expect(after.orders.map(it => it.sku)).to.eql(['a2', 'c']);
     expect(after.orders[0].products.map(it => it.sku)).to.eql(['p1']);
