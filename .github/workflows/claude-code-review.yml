@@ -29,7 +29,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # Full history, so reviewers can tell new code from pre-existing code (git log/blame).
+          fetch-depth: 0
 
       - name: Run Claude Code Review
         id: claude-review
@@ -43,7 +44,16 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: code-review@claude-code-plugins
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment" --disallowedTools ScheduleWakeup'
+          # The model running the command has skipped its subagent steps and still posted
+          # "No issues found. Checked for bugs and CLAUDE.md compliance."
+          claude_args: >-
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git blame:*)"
+            --disallowedTools ScheduleWakeup
+            --append-system-prompt "Follow every step of the code-review command as written,
+            including launching each subagent it asks for, in parallel where it says so. Do not
+            review the diff yourself instead of running the review agents, and do not skip the
+            validation step. If a step fails, say which one in the PR comment, and do not post
+            the no-issues comment unless every step ran."
           display_report: true
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
