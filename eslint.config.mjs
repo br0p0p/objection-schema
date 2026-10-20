@@ -81,19 +81,6 @@ export default antfu(
       ],
     },
   },
-  {
-    files: ['lib/**/*.mts'],
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'ImportDeclaration[source.value!=\'./index.js\']',
-          message:
-            'lib/index.mts only re-exports the CommonJS implementation (one instance, no dual package hazard).',
-        },
-      ],
-    },
-  },
 
   // Type-level code: these rules change what the types mean, not just how they look
   // (method parameters are bivariant, `{}` is load-bearing in conditional types,

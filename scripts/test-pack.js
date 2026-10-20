@@ -90,8 +90,10 @@ import assert from 'node:assert';
 import { createRequire } from 'node:module';
 import * as esm from 'objection-schema';
 
+// Its own build (zshy), with the same exports as the CommonJS one.
 const cjs = createRequire(import.meta.url)('objection-schema');
-for (const name of Object.keys(cjs)) assert.strictEqual(esm[name], cjs[name], name);
+assert.deepStrictEqual(Object.keys(esm).sort(), Object.keys(cjs).sort());
+assert.notStrictEqual(esm.defineModel, cjs.defineModel);
 
 console.log(await createRequire(import.meta.url)('./app.cjs'));
 console.log('esm ok');

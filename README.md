@@ -66,9 +66,15 @@ const { defineModel, defineModels } = require('objection-schema'); // CommonJS
 import { defineModel, defineModels } from 'objection-schema'; // ES modules
 ```
 
-The ES module entry point re-exports the CommonJS implementation instead of being a second copy,
-so an app that mixes `require` and `import` gets one instance (no dual package hazard).
-objection 3.x is CommonJS either way.
+The package has a CommonJS and an ES module build (made with [zshy](https://github.com/colinhacks/zshy)),
+so an app that mixes `require` and `import` loads both. They work together: definitions,
+`column()`s and `relations()` from one can be used with the other, and both know which
+definitions are in a registry already (shared through a global symbol). Only class identity
+differs: the `StandardSchemaValidator` of one isn't the other's. objection 3.x is CommonJS either
+way, so both builds use the app's one objection.
+
+Each build has its own declarations (`.d.ts` and `.d.mts`), so TypeScript knows that the ES
+module build has no default export: import named exports (`import { defineModel }`).
 
 Since the repo is private, install it from a [GitHub release](https://github.com/br0p0p/objection-schema/releases):
 each one has the packed, built package attached. Download it with an authenticated
@@ -258,8 +264,10 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
 The toolchain (Node and pnpm versions) is pinned in `mise.toml`; install [mise](https://mise.jdx.dev) and
 run `mise install`.
 
-The source is TypeScript in `lib/`, built with `tsc` into `dist/` (CommonJS, the ES module entry
-and the declarations), which is what the package publishes and what the tests run against.
+The source is TypeScript in `lib/`, built with [zshy](https://github.com/colinhacks/zshy) (which
+uses `tsc`) into `dist/`: a CommonJS and an ES module build, and the declarations. That's what the
+package publishes and what the tests run against. The `exports` map in `package.json` is written
+by hand (zshy's `noEdit`), so ES module imports get the `.d.mts` declarations.
 
 ```bash
 mise install

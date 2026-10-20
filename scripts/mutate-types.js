@@ -12,10 +12,12 @@ const process = require('node:process');
 
 const root = path.resolve(__dirname, '..');
 
-// The type tests check the built declarations, so each mutant is built first. A mutant that
-// breaks the build of lib/ still emits declarations; it only counts as caught if the type
-// tests fail on them.
-const BUILD = 'pnpm exec tsc -p tsconfig.json';
+// The type tests check the built declarations, so the declarations of each mutant are built
+// first. With tsc rather than zshy: zshy emits nothing when lib/ doesn't compile, and a mutant
+// that breaks lib/ should only count as caught if the type tests fail on its declarations.
+// tsc writes only the CommonJS declarations (dist/*.d.ts), which typed.ts and cjs.cts check. The
+// ES module ones (*.d.mts, for esm.mts) stay those of the clean build; they're the same source.
+const BUILD = 'pnpm exec tsc -p tsconfig.json --emitDeclarationOnly';
 const TYPES = `${BUILD}; pnpm exec tsc -p tests/types/tsconfig.json && pnpm exec tsc -p tests/types/tsconfig.nodenext.json`;
 
 const D = 'lib/types.ts';
@@ -132,7 +134,12 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
-  ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
+  [
+    'package.json',
+    `"types": "./dist/index.d.mts"`,
+    `"types": "./dist/index.d.ts"`,
+    'ES module imports get the CommonJS declarations',
+  ],
 ];
 
 function passes() {
@@ -150,6 +157,10 @@ function passes() {
     return false;
   }
 }
+
+// The mutants only rebuild the CommonJS declarations, so start from a full build (the ES module
+// declarations, which esm.mts checks, come from it).
+execSync('pnpm run build', { cwd: root, stdio: 'pipe' });
 
 if (!passes()) {
   console.error('The type tests must pass before mutating.');

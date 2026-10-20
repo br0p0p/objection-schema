@@ -1,5 +1,6 @@
-// The ES module entry point: same exports and the same instances as `require()`,
-// working against objection 3.x (which is CommonJS) from ESM code.
+// The ES module entry point: the same exports as `require()`, working against objection 3.x
+// (which is CommonJS) from ESM code. It's a second build of lib/, so an app that both `import`s
+// and `require`s the package loads two copies; they have to work together.
 import { createRequire } from 'node:module';
 import expect from 'expect.js';
 import { Model } from 'objection';
@@ -14,12 +15,43 @@ const cjs = require('objection-schema');
 const { connect } = db;
 
 describe('ES module entry point', () => {
-  it('exports exactly what the CommonJS entry point exports, as the same instances', () => {
+  it('exports exactly what the CommonJS entry point exports, from its own build', () => {
     expect(Object.keys(esm).sort()).to.eql(Object.keys(cjs).sort());
+    expect(esm.defineModel).not.to.be(cjs.defineModel);
+  });
 
-    for (const name of Object.keys(cjs)) {
-      expect(esm[name]).to.be(cjs[name]);
-    }
+  it('works together with the CommonJS build', () => {
+    const Owner = esm.defineModel({
+      table: 'owners',
+      columns: { id: esm.column(z.number()).generated() },
+    });
+
+    const Pet = cjs.defineModel({
+      table: 'pets',
+      columns: {
+        id: cjs.column(z.number()).generated(),
+        ownerId: esm.column(z.number()).references('Owner', 'id', { inverse: 'pets' }),
+      },
+    });
+
+    expect(cjs.isModelDefinition(Owner)).to.be(true);
+    expect(esm.isModelDefinition(Pet)).to.be(true);
+
+    const db = cjs.defineModels({ Owner, Pet }, [esm.relations(Owner, () => ({}))]);
+    expect(Object.keys(db.Owner.modelClass.relationMappings())).to.eql(['pets']);
+    expect(Object.keys(db.Pet.modelClass.relationMappings())).to.eql(['owner']);
+
+    // Both builds know which definitions are in a registry already.
+    expect(() => esm.defineModels({ Owner })).to.throwError(
+      /"Owner" \(Owners\) is already part of another registry/,
+    );
+  });
+
+  it('shares the registered definitions with other copies through a global symbol', () => {
+    const Item = esm.defineModel({ table: 'items', columns: { id: z.number() } });
+    esm.defineModels({ Item });
+
+    expect(globalThis[Symbol.for('objection-schema.registered')].has(Item.modelClass)).to.be(true);
   });
 
   it('defines and queries models from ESM code', async () => {
