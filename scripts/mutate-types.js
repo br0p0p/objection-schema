@@ -158,6 +158,10 @@ function passes() {
   }
 }
 
+// The mutants only rebuild the CommonJS declarations, so start from a full build (the ES module
+// declarations, which esm.mts checks, come from it).
+execSync('pnpm run build', { cwd: root, stdio: 'pipe' });
+
 if (!passes()) {
   console.error('The type tests must pass before mutating.');
   process.exit(1);
