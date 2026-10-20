@@ -37,10 +37,13 @@ To try another Node version without editing `mise.toml`:
 `pnpm test` builds once, then runs runtime + types + package exports (attw). `test:runtime`,
 `test:types` and `test:package` each build first too, so none of them tests a stale `dist/`; the
 `…:built` variants and a bare `pnpm exec mocha` don't, so run `pnpm run build` after editing `lib/`.
-Releases: push a `v<version>` tag matching `package.json`; `release.yml` attaches the packed
-package to a GitHub release, which is how it's installed (the git repo has no `dist/`). CI (`.github/workflows/`) runs lint,
-`pnpm test` on Node 18/20/22/24, the runtime tests on Postgres and MySQL, `test:pack`, objection
-versions, and both mutation suites on pull requests.
+
+CI (`.github/workflows/`) runs lint, `pnpm test` on Node 18/20/22/24, the runtime tests on
+Postgres and MySQL, `test:pack`, objection versions, and both mutation suites on pull requests.
+
+Releases: push a `v<version>` tag matching `package.json`; `release.yml` runs the checks and
+attaches the packed package to a GitHub release, which is how it's installed (the git repo has no
+`dist/`).
 
 ## Layout
 
