@@ -634,6 +634,77 @@ async function snakeCaseReference() {
   snakeDb.Snake.query().withGraphFetched('owner_id');
 }
 
+// ----- column names: types keep the property names -----
+
+const namedColumn = column(z.number()).generated();
+
+expectType<Equal<ReturnType<typeof namedColumn.name>, typeof namedColumn>>();
+
+const memberColumns = {
+  memberId: column(z.number()).generated().name('id'),
+  fullName: z.string(),
+  nickname: column(z.string().nullable()).hasDefault().name('nick'),
+  settings: column(z.object({ theme: z.string() })).json().name('settings_json'),
+  teamId: column(z.number().nullable()).name('team').references('NamedTeam', 'teamId', { inverse: 'members' }),
+};
+
+const NamedMember = defineModel({
+  table: 'members',
+  id: 'memberId',
+  columnNames: 'snake_case',
+  columns: memberColumns,
+});
+
+const UnnamedMember = defineModel({ table: 'members', id: 'memberId', columns: memberColumns });
+
+expectType<Equal<Row<typeof NamedMember>, Row<typeof UnnamedMember>>>();
+
+expectType<Equal<Insert<typeof NamedMember>, Insert<typeof UnnamedMember>>>();
+
+expectType<Equal<Patch<typeof NamedMember>, Patch<typeof UnnamedMember>>>();
+
+const NamedTeam = defineModel({
+  table: 'teams',
+  id: 'teamId',
+  columns: { teamId: column(z.number()).generated(), teamName: z.string() },
+});
+
+const namedDb = defineModels({ NamedMember, NamedTeam });
+
+async function columnNames() {
+  const [member] = await namedDb.NamedMember.query()
+    .select('memberId', 'fullName as name', 'members.nickname')
+    .where('fullName', 'Ann')
+    .orderBy('members.fullName');
+
+  expectType<Equal<typeof member, { memberId: number; name: string; nickname: string | null }>>();
+
+  const [joined] = await namedDb.NamedTeam.query()
+    .joinRelated('members')
+    .select('teamName', 'members.fullName')
+    .where('members.teamId', 1);
+
+  expectType<Equal<typeof joined, { teamName: string; fullName: string }>>();
+
+  namedDb.NamedMember.ref('fullName');
+
+  // @ts-expect-error queries take property names, not column names
+  namedDb.NamedMember.query().where('full_name', 'Ann');
+
+  // @ts-expect-error `settings_json` is the column; the property is `settings`
+  namedDb.NamedMember.query().insert({ fullName: 'Ann', settings_json: { theme: 'dark' } });
+}
+
+defineModel({
+  table: 'members',
+  // @ts-expect-error only 'snake_case' is supported
+  columnNames: 'camelCase',
+  columns: { id: z.number() },
+});
+
+// @ts-expect-error a column name is a string
+column(z.string()).name(1);
+
 // ----- real application migration patterns (tests/migrations/README.md) -----
 
 // Wiki.js uses getter-only class statics, string IDs and JSON settings. A classic

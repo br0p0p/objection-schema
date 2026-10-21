@@ -56,6 +56,8 @@ lib/                       the source (TypeScript), built into dist/ (gitignored
   defineModels.ts          registry, the three relation sources, merge rules, relationMappings
   column.ts                column() builder + metadata, references(), defineModelNames(),
                            required/default/optional probe
+  columnNames.ts           property -> column map (`columnNames`, `.name()`), columnNameMappers,
+                           the query builder that maps names in the typed query methods
   StandardSchemaValidator.ts  objection Validator: per-column validation, Ajv-style error keys
   standardSchema.ts        Standard Schema helpers, sync-only guard, unchecked()
   objection.ts             what objection exports at runtime but its typings don't declare

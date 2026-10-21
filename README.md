@@ -94,6 +94,7 @@ columns: {
   email: z.string().email(),                // a plain schema is a column too
   legacy: unchecked<string>(),              // type only, no runtime validation
   ownerId: column(z.number()).references('Person', 'id', { as: 'owner', inverse: 'pets' }),
+  lastName: column(z.string()).name('surname'), // the column's name in the database
 }
 ```
 
@@ -101,6 +102,58 @@ Whether a column is required on insert comes from its schema: when the definitio
 schema is probed once with `undefined`. Failure means required, a value means a default (zod
 `.default()`), and `undefined` means optional. That's the same rule as the inferred `Insert` type
 (`undefined extends Input` ⇒ optional), so runtime and types agree.
+
+### Column names
+
+Property names are column names, unless the definition maps them. That's per model, so an app
+can mix snake_case and camelCase tables (a legacy database, or tables from another system):
+
+```ts
+const Member = defineModel({
+  table: 'members',
+  id: 'memberId',
+  columnNames: 'snake_case', // memberId -> member_id, fullName -> full_name, …
+  columns: {
+    memberId: column(z.number()).generated(),
+    fullName: z.string(),
+    settings: column(Settings).json().name('settings_json'), // overrides the rule
+    teamId: column(z.number()).references('Team', 'teamId'),
+  },
+});
+```
+
+`columnNames: 'snake_case'` converts names like objection's `snakeCaseMappers()` and
+`knexSnakeCaseMappers()` do, and `.name('column')` names one column explicitly, with or without
+a rule. The types don't change: rows, inserts, patches, relations and queries use property
+names. Every place that names a column uses the mapping:
+
+- **Rows:** the model gets objection's `columnNameMappers`, so reads, writes and `.json()` columns
+  convert. Keys it doesn't know (aliases, joined columns) pass through.
+- **Ids:** the model class's `idColumn` holds the column names (the handle's `idColumn` keeps the
+  property names), so `findById`, `patch().findById()`, `deleteById`, `increment` and graph
+  upserts work.
+- **Relations:** join keys are property names on both sides, and each side maps its own: a
+  definition with its mapping, a classic model with its own `columnNameMappers`. The `through`
+  columns of a join table are written as they are in the database, since it has no model.
+  _Changed:_ join keys used to reach objection unchanged, so a relation to a classic model with
+  `snakeCaseMappers()` needed its column names. snake_case column names still work, since
+  converting them again leaves them as they are.
+- **Typed query methods:** `select`, the `where*` methods (including `where` objects and the query
+  inside a `where` callback), `orderBy`, `groupBy` and `returning` resolve `prop`, `table.prop`,
+  `prop as alias`, and joined `relation.prop` / `relation:nested.prop`. A joined column that's
+  renamed is selected under its property name. The handle's `ref('prop')` maps too. (objection
+  3.0.x passes knex's own builder to `where` callbacks when used with knex ≥ 1, so there the
+  callback's query takes column names.)
+
+What you write as SQL isn't rewritten: `raw()`, objection's own `ref()`, knex queries, and the
+methods only reachable through `toQueryBuilder(query)` (`having`, `count`, `join`, …) take column
+names. So do a classic model's queries.
+
+`defineModel` throws when two properties map to the same column, when a property maps to the name
+of another property, and when `base` has its own `columnNameMappers` (a model has one set; a
+definition without a mapping keeps the base's). Don't combine a mapping with
+`knexSnakeCaseMappers()`: that one converts every identifier and result row again, at the knex
+level.
 
 ## Relations
 
@@ -256,8 +309,10 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
   or use `z.coerce.number()` for id and foreign key columns (ids read from the database are then
   still strings).
 
-- **Column naming:** property names are column names. For snake_case use knex's
-  `knexSnakeCaseMappers()`; per-model casing needs a hook in objection.
+- **Column naming:** `columnNames` has one rule, `'snake_case'`; use `.name()` for others. Only the
+  typed query methods map property names, so `raw()`, `ref()` and the untyped methods take column
+  names, and per-model mappings don't combine with `knexSnakeCaseMappers()` (see
+  [Column names](#column-names)). Classic models' `columnNameMappers` still only convert rows.
 - **Untyped query methods:** aggregates, raw/subquery selects, JSON operators and unions. Use
   `toQueryBuilder(query)` for these.
 - **Joined columns:** `leftJoinRelated` / `withGraphJoined` columns aren't typed as nullable yet.

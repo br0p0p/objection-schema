@@ -5,8 +5,8 @@
 // db.js); the parts that only apply to some databases skip themselves on the others.
 
 const expect = require('expect.js');
-const { Model, ValidationError } = require('objection');
-const { defineModel, defineModels, column } = require('objection-schema');
+const { Model, ValidationError, snakeCaseMappers } = require('objection');
+const { defineModel, defineModels, column, relations } = require('objection-schema');
 const { z } = require('zod');
 const { client, connect } = require('./db');
 
@@ -252,6 +252,298 @@ describe(`databases (${client})`, () => {
     ]);
 
     expect(orders.map(it => typeof it.id)).to.eql(['number', 'number']);
+  });
+
+  // A snake_case table (`columnNames`), a camelCase one, and a classic model with
+  // objection's `snakeCaseMappers()`, related in both directions.
+  describe('column names', () => {
+    let names;
+
+    before(async () => {
+      await knex.schema
+        .createTable('members', (t) => {
+          t.increments('member_id');
+          t.string('full_name').notNullable();
+          t.integer('login_count').notNullable().defaultTo(0);
+          client === 'sqlite' ? t.text('settings_json') : t.json('settings_json');
+          t.integer('team_id');
+        })
+        .createTable('teams', (t) => {
+          t.increments('teamId');
+          t.string('teamName').notNullable();
+          t.integer('leadMemberId');
+        })
+        .createTable('badges', (t) => {
+          t.increments('id');
+          t.string('badge_label').notNullable();
+          t.integer('member_id');
+        });
+
+      names = makeNamedModels();
+    });
+
+    beforeEach(async () => {
+      for (const table of ['badges', 'members', 'teams']) {
+        await knex(table).delete();
+      }
+    });
+
+    function makeNamedModels() {
+      const Member = defineModel({
+        table: 'members',
+        id: 'memberId',
+        columnNames: 'snake_case',
+        columns: {
+          memberId: column(z.number().int()).generated(),
+          fullName: z.string(),
+          loginCount: column(z.number().int()).hasDefault(),
+          settings: column(z.object({ theme: z.string() }).nullable().optional())
+            .json()
+            .name('settings_json'),
+          teamId: column(z.number().int().nullable().optional()).references('Team', 'teamId', {
+            inverse: 'members',
+          }),
+        },
+      });
+
+      const Team = defineModel({
+        table: 'teams',
+        id: 'teamId',
+        columns: {
+          teamId: column(z.number().int()).generated(),
+          teamName: z.string(),
+          leadMemberId: column(z.number().int().nullable().optional()).references(
+            'Member',
+            'memberId',
+            { as: 'lead', inverse: 'leads' },
+          ),
+        },
+      });
+
+      let models;
+
+      class Badge extends Model {
+        static tableName = 'badges';
+        static columnNameMappers = snakeCaseMappers();
+
+        // A classic model's own relations name columns, as they always have.
+        static get relationMappings() {
+          return {
+            member: {
+              relation: Model.BelongsToOneRelation,
+              modelClass: models.Member.modelClass,
+              join: { from: 'badges.member_id', to: 'members.member_id' },
+            },
+          };
+        }
+      }
+
+      models = defineModels({ Member, Team, Badge }, [
+        relations(Member, r => ({
+          // Property names on both sides: each side maps them with its own mappers.
+          badges: r.hasMany(Badge, { from: 'memberId', to: 'memberId' }),
+        })),
+      ]);
+
+      return models;
+    }
+
+    it('reads and writes through property names', async () => {
+      const ann = await names.Member.query().insert({ fullName: 'Ann', settings: { theme: 'dark' } });
+
+      expect(await knex('members').select('member_id', 'full_name', 'login_count', 'team_id')).to.eql([
+        { member_id: ann.memberId, full_name: 'Ann', login_count: 0, team_id: null },
+      ]);
+
+      const read = await names.Member.query().findById(ann.memberId);
+      expect(read.toJSON()).to.eql({
+        memberId: ann.memberId,
+        fullName: 'Ann',
+        loginCount: 0,
+        settings: { theme: 'dark' },
+        teamId: null,
+      });
+
+      expect(await names.Member.query().patch({ fullName: 'Anne' }).findById(ann.memberId)).to.be(1);
+      await names.Member.query().findById(ann.memberId).increment('loginCount', 3);
+
+      const patched = await names.Member.query().patchAndFetchById(ann.memberId, {
+        settings: { theme: 'light' },
+      });
+
+      expect(patched.fullName).to.be('Anne');
+      expect(patched.loginCount).to.be(3);
+      expect(patched.settings).to.eql({ theme: 'light' });
+
+      const found = await names.Member.query()
+        .select('memberId', 'fullName as name')
+        .where('loginCount', '>', 2)
+        .whereNotNull('settings')
+        .orderBy('fullName');
+
+      expect(found.map(it => it.toJSON())).to.eql([{ memberId: ann.memberId, name: 'Anne' }]);
+    });
+
+    only('pg')('maps returning()', async () => {
+      const ann = await names.Member.query().insert({ fullName: 'Ann' }).returning('memberId', 'fullName');
+      expect(ann.toJSON()).to.eql({ memberId: ann.memberId, fullName: 'Ann' });
+      expect(ann.memberId).to.be.a('number');
+    });
+
+    async function insertTeam() {
+      const team = await names.Team.query().insertGraph({
+        teamName: 'Red',
+        members: [
+          { fullName: 'Ann', badges: [{ badgeLabel: 'first' }, { badgeLabel: 'second' }] },
+          { fullName: 'Bob' },
+        ],
+      });
+
+      const [ann, bob] = team.members;
+      await names.Team.query().patch({ leadMemberId: ann.memberId }).findById(team.teamId);
+
+      return { team, ann, bob };
+    }
+
+    it('fetches graphs across both tables and the classic model', async () => {
+      const { team, ann, bob } = await insertTeam();
+
+      expect(await knex('badges').select('badge_label', 'member_id').orderBy('badge_label')).to.eql([
+        { badge_label: 'first', member_id: ann.memberId },
+        { badge_label: 'second', member_id: ann.memberId },
+      ]);
+
+      const fetched = await names.Team.query()
+        .findById(team.teamId)
+        .withGraphFetched('[members(byName).badges, lead]')
+        .modifiers({ byName: q => q.orderBy('fullName') });
+
+      expect(fetched.lead.fullName).to.be('Ann');
+      expect(fetched.members.map(it => it.fullName)).to.eql(['Ann', 'Bob']);
+      expect(fetched.members[0].badges.map(it => it.badgeLabel).sort()).to.eql(['first', 'second']);
+
+      const member = await names.Member.query()
+        .findById(ann.memberId)
+        .withGraphFetched('[team.lead.badges, leads]');
+
+      expect(member.team.teamName).to.be('Red');
+      expect(member.team.lead.badges).to.have.length(2);
+      expect(member.leads.map(it => it.teamName)).to.eql(['Red']);
+
+      const bobs = await names.Member.query().findById(bob.memberId).withGraphFetched('team');
+      expect(bobs.team.teamId).to.be(team.teamId);
+
+      const badge = await names.Badge.modelClass.query().where('badge_label', 'first').first();
+
+      const classic = await names.Badge.modelClass
+        .query()
+        .findById(badge.id)
+        .withGraphFetched('member.team');
+
+      expect(classic.member.fullName).to.be('Ann');
+      expect(classic.member.team.teamName).to.be('Red');
+    });
+
+    it('joins across both tables with withGraphJoined', async () => {
+      const { ann } = await insertTeam();
+
+      const [member] = await names.Member.query()
+        .withGraphJoined('[team.lead, badges]')
+        .where('members.memberId', ann.memberId);
+
+      expect(member.team.teamName).to.be('Red');
+      expect(member.team.lead.memberId).to.be(ann.memberId);
+      expect(member.badges.map(it => it.badgeLabel).sort()).to.eql(['first', 'second']);
+
+      const [team] = await names.Team.query()
+        .withGraphJoined('members')
+        .where('members.fullName', 'Bob');
+
+      expect(team.members.map(it => it.fullName)).to.eql(['Bob']);
+    });
+
+    it('selects joined columns by property name with joinRelated', async () => {
+      const { ann, bob } = await insertTeam();
+
+      const rows = await names.Team.query()
+        .joinRelated('members')
+        .select('teams.teamName', 'members.memberId', 'members.fullName', 'members.loginCount')
+        .where('members.fullName', '!=', 'Nobody')
+        .orderBy('members.fullName');
+
+      expect(rows.map(it => it.toJSON())).to.eql([
+        { teamName: 'Red', memberId: ann.memberId, fullName: 'Ann', loginCount: 0 },
+        { teamName: 'Red', memberId: bob.memberId, fullName: 'Bob', loginCount: 0 },
+      ]);
+
+      const bobs = await names.Team.query()
+        .joinRelated('members')
+        .select('members.fullName')
+        .where({ 'members.fullName': 'Bob' });
+
+      expect(bobs.map(it => it.toJSON())).to.eql([{ fullName: 'Bob' }]);
+
+      // Joined columns that are renamed are selected under their property name.
+      const selection = names.Team.query()
+        .joinRelated('members')
+        .select('teams.teamName', 'members.teamId', 'members.fullName', 'members.*', 'teamName');
+
+      expect(selection.toKnexQuery().toQuery().replace(/[`"]/g, '')).to.contain(
+        'select teams.teamName, members.team_id as teamId, members.full_name as fullName, members.*, teamName from',
+      );
+
+      const leads = await names.Member.query()
+        .joinRelated('team.lead')
+        .select('members.fullName', 'team.teamName', 'team:lead.fullName as leadName')
+        .where('team:lead.memberId', ann.memberId)
+        .orderBy('members.fullName');
+
+      expect(leads.map(it => it.toJSON())).to.eql([
+        { fullName: 'Ann', teamName: 'Red', leadName: 'Ann' },
+        { fullName: 'Bob', teamName: 'Red', leadName: 'Ann' },
+      ]);
+    });
+
+    it('relates, queries related rows and upserts graphs', async () => {
+      const { team, ann, bob } = await insertTeam();
+
+      const cara = await names.Member.query().insert({ fullName: 'Cara' });
+      await team.$relatedQuery('members').relate(cara.memberId);
+
+      const related = await names.Team.relatedQuery('members')
+        .for(team.teamId)
+        .where('fullName', '!=', 'Bob')
+        .orderBy('fullName');
+
+      expect(related.map(it => it.fullName)).to.eql(['Ann', 'Cara']);
+      expect((await ann.$relatedQuery('badges')).map(it => it.badgeLabel).sort()).to.eql([
+        'first',
+        'second',
+      ]);
+
+      const fetched = await names.Team.query()
+        .findById(team.teamId)
+        .withGraphFetched('members(byName).badges')
+        .modifiers({ byName: q => q.orderBy('fullName') });
+
+      fetched.teamName = 'Blue';
+      fetched.members = fetched.members.filter(it => it.memberId !== bob.memberId);
+      fetched.members[0].fullName = 'Annie';
+      fetched.members[0].badges.push({ badgeLabel: 'third' });
+
+      await names.Team.query().upsertGraph(fetched);
+
+      const after = await names.Team.query()
+        .findById(team.teamId)
+        .withGraphFetched('members(byName).badges')
+        .modifiers({ byName: q => q.orderBy('fullName') });
+
+      expect(after.teamName).to.be('Blue');
+      expect(after.members.map(it => it.fullName)).to.eql(['Annie', 'Cara']);
+      expect(after.members[0].badges.map(it => it.badgeLabel).sort()).to.eql(['first', 'second', 'third']);
+      // Removed from the graph, so upsertGraph deleted it.
+      expect(await knex('members').where('member_id', bob.memberId)).to.eql([]);
+    });
   });
 
   describe('postgres bigint without a type parser', () => {

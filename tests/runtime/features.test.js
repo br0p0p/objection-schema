@@ -4,7 +4,7 @@
 // relation options, composite keys, classic model handles, error paths and handle methods.
 
 const expect = require('expect.js');
-const { Model, ValidationError, raw } = require('objection');
+const { Model, ValidationError, raw, ref, snakeCaseMappers } = require('objection');
 
 const {
   defineModel,
@@ -18,7 +18,17 @@ const {
 
 const v = require('valibot');
 const { z } = require('zod');
-const { connect } = require('./db');
+const { client, connect } = require('./db');
+
+function only(...clients) {
+  return (title, fn) =>
+    it(`${title} (${clients.join(', ')})`, function () {
+      if (!clients.includes(client))
+        this.skip();
+
+      return fn.call(this);
+    });
+}
 
 describe('features', () => {
   let knex;
@@ -58,13 +68,27 @@ describe('features', () => {
       .createTable('owner_films', (t) => {
         t.integer('ownerId');
         t.integer('filmId');
+      })
+      .createTable('crew', (t) => {
+        t.increments('crew_id');
+        t.string('full_name');
+        t.string('nick');
+        t.integer('login_count').notNullable().defaultTo(0);
+      })
+      .createTable('tenant_accounts', (t) => {
+        t.string('tenant_code');
+        t.integer('account_no');
+        t.string('display_name');
+        t.primary(['tenant_code', 'account_no']);
       });
   });
 
   after(() => knex.destroy());
 
   beforeEach(async () => {
-    for (const table of ['owners', 'pets', 'accounts', 'memberships', 'films', 'owner_films']) {
+    const tables = ['owners', 'pets', 'accounts', 'memberships', 'films', 'owner_films', 'crew', 'tenant_accounts'];
+
+    for (const table of tables) {
       await knex(table).delete();
     }
   });
@@ -682,6 +706,351 @@ describe('features', () => {
           relations(own, r => ({ x: r.hasMany(Classic, { from: 'id', to: 'id' }) })),
         ]),
       ).to.throwError(/points to a model that isn't part of this registry \(Classic\)/);
+    });
+  });
+
+  describe('column names', () => {
+    const crewColumns = () => ({
+      crewId: column(z.number()).generated(),
+      fullName: z.string(),
+      // `.name()` overrides the casing rule (snake_case would be `nickname`).
+      nickname: column(z.string().nullable().optional()).name('nick'),
+      loginCount: column(z.number()).hasDefault(),
+    });
+
+    const Crew = () =>
+      defineModel({ table: 'crew', id: 'crewId', columnNames: 'snake_case', columns: crewColumns() });
+
+    // The SQL of a query, with identifiers unquoted so the assertions work on every database.
+    const sql = query => toQueryBuilder(query).toKnexQuery().toQuery().replace(/[`"]/g, '');
+
+    it('maps properties to snake_case columns, and `.name()` overrides the casing', async () => {
+      const crew = Crew();
+
+      const ann = await crew.query().insert({ fullName: 'Ann', nickname: 'A' });
+      expect(ann.toJSON()).to.eql({ fullName: 'Ann', nickname: 'A', crewId: ann.crewId });
+      expect(await knex('crew').select('crew_id', 'full_name', 'nick', 'login_count')).to.eql([
+        { crew_id: ann.crewId, full_name: 'Ann', nick: 'A', login_count: 0 },
+      ]);
+
+      const read = await crew.query().findById(ann.crewId);
+      expect(read.toJSON()).to.eql({ crewId: ann.crewId, fullName: 'Ann', nickname: 'A', loginCount: 0 });
+
+      expect(await crew.query().patch({ nickname: 'Annie' }).findById(ann.crewId)).to.be(1);
+      await crew.query().findById(ann.crewId).increment('loginCount', 2);
+      expect((await crew.query().findById(ann.crewId)).toJSON()).to.eql({
+        crewId: ann.crewId,
+        fullName: 'Ann',
+        nickname: 'Annie',
+        loginCount: 2,
+      });
+
+      expect(crew.idColumn).to.be('crewId');
+      expect(crew.modelClass.idColumn).to.be('crew_id');
+      expect(crew.modelClass.propertyNameToColumnName('loginCount')).to.be('login_count');
+      expect(crew.modelClass.columnNameToPropertyName('nick')).to.be('nickname');
+
+      const bound = crew.bindKnex(knex);
+      expect((await bound.query().where('fullName', 'Ann')).map(it => it.nickname)).to.eql(['Annie']);
+      expect(sql(bound.query().where('fullName', 'Ann'))).to.contain('full_name');
+    });
+
+    it('maps composite ids', async () => {
+      const Account = defineModel({
+        table: 'tenant_accounts',
+        id: ['tenantCode', 'accountNo'],
+        columnNames: 'snake_case',
+        columns: { tenantCode: z.string(), accountNo: z.number(), displayName: z.string() },
+      });
+
+      await Account.query().insert({ tenantCode: 'a', accountNo: 1, displayName: 'A1' });
+      await Account.query().insert({ tenantCode: 'b', accountNo: 1, displayName: 'B1' });
+
+      expect(Account.idColumn).to.eql(['tenantCode', 'accountNo']);
+      expect(Account.modelClass.idColumn).to.eql(['tenant_code', 'account_no']);
+      expect((await Account.query().findById(['b', 1])).displayName).to.be('B1');
+      expect((await Account.query().findByIds([['a', 1]])).map(it => it.displayName)).to.eql(['A1']);
+      expect(await Account.query().patch({ displayName: 'B2' }).findById(['b', 1])).to.be(1);
+      expect((await Account.query().findById(['b', 1])).displayName).to.be('B2');
+      expect(await Account.query().deleteById(['a', 1])).to.be(1);
+      expect(await knex('tenant_accounts').select('display_name')).to.eql([{ display_name: 'B2' }]);
+    });
+
+    it('maps property names in the typed query methods', () => {
+      const crew = Crew();
+      const q = () => crew.query();
+
+      const cases = [
+        q().where('fullName', 'a'),
+        q().where('fullName', '=', 'a'),
+        q().where({ fullName: 'a' }),
+        q().andWhere('fullName', 'a'),
+        q().orWhere('fullName', 'a'),
+        q().whereNot('fullName', 'a'),
+        q().orWhereNot('fullName', 'a'),
+        q().whereIn('fullName', ['a']),
+        q().orWhereIn('fullName', ['a']),
+        q().whereNotIn('fullName', ['a']),
+        q().orWhereNotIn('fullName', ['a']),
+        q().whereNull('fullName'),
+        q().orWhereNull('fullName'),
+        q().whereNotNull('fullName'),
+        q().orWhereNotNull('fullName'),
+        q().whereBetween('fullName', ['a', 'b']),
+        q().whereNotBetween('fullName', ['a', 'b']),
+        q().orderBy('fullName', 'desc'),
+        q().groupBy('crewId', 'fullName'),
+        q().select('crewId', 'fullName'),
+        q().findOne({ fullName: 'a' }),
+        q().where('crew.fullName', 'a'),
+        q().select('crew.fullName'),
+        toQueryBuilder(q()).whereIn(['crewId', 'fullName'], [[1, 'a']]),
+        toQueryBuilder(q()).alias('c').where('c.fullName', 'a'),
+        q().where(crew.ref('fullName'), 'a'),
+      ];
+
+      for (const query of cases) {
+        expect(sql(query)).to.contain('full_name');
+        expect(sql(query)).not.to.contain('fullName');
+      }
+
+      expect(sql(q().groupBy('crewId', 'fullName'))).to.contain('crew_id, full_name');
+      expect(sql(q().where({ fullName: 'a', crewId: 1 }))).to.contain('full_name = \'a\' and crew_id = 1');
+      expect(sql(q().where('crew.fullName', 'a'))).to.contain('crew.full_name');
+      expect(sql(q().where(crew.ref('fullName'), 'a'))).to.contain('crew.full_name');
+      expect(sql(q().select('fullName as name', 'nickname AS short'))).to.contain(
+        'select full_name as name, nick as short from',
+      );
+      expect(sql(q().select('crew.fullName'))).to.contain('select crew.full_name from');
+    });
+
+    it('maps property names inside where callbacks', function () {
+      const crew = Crew();
+      let isObjectionBuilder = false;
+
+      sql(crew.query().where((query) => {
+        isObjectionBuilder = query.isObjectionQueryBuilderBase === true;
+      }));
+
+      // objection 3.0.x doesn't recognize knex 3's builders, and passes them to the callback.
+      if (!isObjectionBuilder)
+        this.skip();
+
+      expect(sql(crew.query().where(query => query.where('fullName', 'fullName')))).to.contain(
+        'where (full_name = \'fullName\')',
+      );
+      expect(sql(crew.query().where('crewId', 1).orWhere(query => query.whereNull('nickname')))).to.contain(
+        'or (nick is null)',
+      );
+    });
+
+    only('sqlite', 'pg')('maps returning()', () => {
+      const crew = Crew();
+      expect(sql(crew.query().insert({ fullName: 'a' }).returning('crewId', 'fullName'))).to.contain(
+        'returning crew_id, full_name',
+      );
+    });
+
+    it('leaves values, raw(), ref(), unknown names and subqueries alone', () => {
+      const crew = Crew();
+      const q = () => crew.query();
+
+      expect(sql(q().where('fullName', 'fullName'))).to.contain('full_name = \'fullName\'');
+      expect(sql(q().where('fullName', '=', 'fullName'))).to.contain('full_name = \'fullName\'');
+      expect(sql(q().where('full_name', 'a'))).to.contain('where full_name = \'a\'');
+      expect(sql(q().where('other.fullName', 'a'))).to.contain('where other.fullName = \'a\'');
+      expect(sql(q().where(ref('fullName'), 'a'))).to.contain('where fullName = \'a\'');
+      expect(sql(q().where(raw('??', ['fullName']), 'a'))).to.contain('where fullName = \'a\'');
+      expect(sql(q().select('*'))).to.contain('select * from');
+      expect(sql(q().select('crew.*'))).to.contain('select crew.* from');
+      expect(sql(toQueryBuilder(q()).select({ fullName: 'nick' }))).to.contain('select nick as fullName from');
+      expect(() => toQueryBuilder(q()).where(null)).not.to.throwError();
+      expect(() => toQueryBuilder(q()).where(undefined)).to.throwError(
+        /undefined passed as argument #0 for 'where' operation/,
+      );
+      expect(sql(q().whereIn('crewId', q().select('crewId')))).to.contain(
+        'crew_id in (select crew_id from crew)',
+      );
+    });
+
+    it('extends the base\'s query builder', () => {
+      class CustomQueryBuilder extends Model.QueryBuilder {
+        tagged() {
+          return this.where('fullName', 'tagged');
+        }
+      }
+
+      class Base extends Model {
+        static QueryBuilder = CustomQueryBuilder;
+      }
+
+      const crew = defineModel({
+        table: 'crew',
+        base: Base,
+        id: 'crewId',
+        columnNames: 'snake_case',
+        columns: crewColumns(),
+      });
+
+      expect(crew.query()).to.be.a(CustomQueryBuilder);
+      expect(sql(crew.query().tagged())).to.contain('full_name = \'tagged\'');
+      expect(Base.QueryBuilder).to.be(CustomQueryBuilder);
+    });
+
+    it('sets no mappers up when no column is renamed', () => {
+      const same = defineModel({
+        table: 'owners',
+        columnNames: 'snake_case',
+        columns: { id: column(z.number()).name('id'), name: z.string(), first_name: z.string() },
+      });
+
+      expect(Object.hasOwn(same.modelClass, 'columnNameMappers')).to.be(false);
+      expect(same.modelClass.getColumnNameMappers()).to.be(null);
+      expect(same.modelClass.idColumn).to.be('id');
+
+      const plain = defineModel({ table: 'owners', columns: ownerColumns() });
+      expect(Object.hasOwn(plain.modelClass, 'columnNameMappers')).to.be(false);
+    });
+
+    it('defines the mappers like a static class field', () => {
+      const descriptor = Object.getOwnPropertyDescriptor(Crew().modelClass, 'columnNameMappers');
+      expect([descriptor.configurable, descriptor.enumerable, descriptor.writable]).to.eql([
+        true,
+        true,
+        true,
+      ]);
+    });
+
+    it('keeps a base\'s own mappers when the definition renames nothing', () => {
+      const mappers = snakeCaseMappers();
+
+      class Snake extends Model {
+        static columnNameMappers = mappers;
+      }
+
+      const def = defineModel({ table: 'owners', base: Snake, columns: ownerColumns() });
+      expect(def.modelClass.columnNameMappers).to.be(mappers);
+      expect(Object.hasOwn(def.modelClass, 'columnNameMappers')).to.be(false);
+    });
+
+    it('passes the keys it doesn\'t know through when converting rows', () => {
+      const { modelClass } = Crew();
+
+      expect(
+        modelClass.fromDatabaseJson({ full_name: 'a', nick: 'b', extra_col: 1, fullName_x: 2 }).toJSON(),
+      ).to.eql({ fullName: 'a', nickname: 'b', extra_col: 1, fullName_x: 2 });
+      expect(modelClass.fromJson({ fullName: 'a', nickname: null, other: 1 }).$toDatabaseJson()).to.eql({
+        full_name: 'a',
+        nick: null,
+        other: 1,
+      });
+    });
+
+    const errors = [
+      [
+        'a non-string column name',
+        () => column(z.string()).name(1),
+        /^name\(\): expects a column name \(a non-empty string\), got 1$/,
+      ],
+      [
+        'an empty column name',
+        () => column(z.string()).name(''),
+        /^name\(\): expects a column name \(a non-empty string\), got ""$/,
+      ],
+      [
+        'an unknown casing',
+        () => defineModel({ table: 'x', columnNames: 'camelCase', columns: { id: z.number() } }),
+        /^defineModel\(X\): `columnNames` must be "snake_case", got "camelCase"$/,
+      ],
+      [
+        'two columns with the same column name',
+        () =>
+          defineModel({
+            table: 'x',
+            columnNames: 'snake_case',
+            columns: { id: z.number(), firstName: z.string(), first_name: z.string() },
+          }),
+        /^defineModel\(X\): columns "firstName" and "first_name" both map to column "first_name"$/,
+      ],
+      [
+        'two columns given the same name with .name()',
+        () =>
+          defineModel({
+            table: 'x',
+            columns: {
+              id: z.number(),
+              a: column(z.string()).name('c'),
+              b: column(z.string()).name('c'),
+            },
+          }),
+        /^defineModel\(X\): columns "a" and "b" both map to column "c"$/,
+      ],
+      [
+        'a column named like another property',
+        () =>
+          defineModel({
+            table: 'x',
+            columns: {
+              id: z.number(),
+              a: column(z.string()).name('b'),
+              b: column(z.string()).name('a'),
+            },
+          }),
+        /^defineModel\(X\): column "a" maps to "b", the name of another column in `columns`$/,
+      ],
+      [
+        'a base with its own columnNameMappers and `columnNames`',
+        () => {
+          class Snake extends Model {
+            static columnNameMappers = snakeCaseMappers();
+          }
+
+          defineModel({
+            table: 'x',
+            base: Snake,
+            columnNames: 'snake_case',
+            columns: { id: z.number() },
+          });
+        },
+        /^defineModel\(X\): `base` has its own `columnNameMappers`, which can't be combined with `columnNames` or `\.name\(\)`$/,
+      ],
+      [
+        'a base with its own columnNameMappers and .name()',
+        () => {
+          class Snake extends Model {
+            static get columnNameMappers() {
+              return snakeCaseMappers();
+            }
+          }
+
+          defineModel({
+            table: 'x',
+            base: Snake,
+            columns: { id: z.number(), name: column(z.string()).name('label') },
+          });
+        },
+        /^defineModel\(X\): `base` has its own `columnNameMappers`/,
+      ],
+    ];
+
+    for (const [label, fn, pattern] of errors) {
+      it(`rejects ${label}`, () => expect(fn).to.throwError(pattern));
+    }
+
+    it('returns a new column from .name()', () => {
+      const plain = column(z.string());
+      const named = plain.name('x');
+
+      expect(named).not.to.be(plain);
+      expect(named['~column'].name).to.be('x');
+      expect(plain['~column'].name).to.be(null);
+      expect(named.json()['~column']).to.eql({
+        generated: false,
+        hasDefault: false,
+        json: true,
+        references: null,
+        name: 'x',
+      });
     });
   });
 
