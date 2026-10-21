@@ -7,11 +7,13 @@
 // - validation never mutates its input, and is idempotent,
 // - patch validation only looks at the given keys,
 // - an inserted row reads back as it was validated,
-// - relation merging matches an independent model of the rules for random registries.
+// - relation merging matches an independent model of the rules for random registries,
+// - column names map like an independent model of the naming rules.
 
 const assert = require('node:assert');
 const expect = require('expect.js');
 const fc = require('fast-check');
+const Knex = require('knex');
 const { defineModel, defineModels, relations, column } = require('objection-schema');
 const { z } = require('zod');
 const { connect } = require('./db');
@@ -450,6 +452,91 @@ describe('properties', () => {
 
               expect(actual).to.eql(expected);
             }
+          }
+        }),
+        { numRuns: NUM_RUNS * 2 },
+      );
+    });
+  });
+
+  describe('column names', () => {
+    // Property names and `.name()`s from a small pool, so that collisions are common.
+    const pool = ['a', 'b', 'aB', 'a_b', 'bC', 'b_c', 'cD'];
+
+    const columnSpec = fc.record({
+      columns: fc.uniqueArray(
+        fc.record({ prop: fc.constantFrom(...pool), name: fc.option(fc.constantFrom(...pool, 'x_y')) }),
+        { minLength: 1, maxLength: 4, selector: it => it.prop },
+      ),
+      snakeCase: fc.boolean(),
+    });
+
+    // The oracle: an independent snake_case for these names, and the two rules.
+    const snake = prop => prop.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
+    const columnOf = (spec, { prop, name }) => name || (spec.snakeCase ? snake(prop) : prop);
+
+    // Builds SQL only; it never connects.
+    const sqlBuilder = Knex({ client: 'sqlite3', useNullAsDefault: true });
+
+    after(() => sqlBuilder.destroy());
+
+    function expectedError(spec) {
+      const props = spec.columns.map(it => it.prop);
+      const columns = spec.columns.map(it => columnOf(spec, it));
+
+      if (new Set(columns).size < columns.length)
+        return /both map to column/;
+
+      if (columns.some((col, i) => col !== props[i] && props.includes(col)))
+        return /the name of another column in `columns`/;
+
+      return null;
+    }
+
+    let defined = 0;
+
+    function define(spec) {
+      return defineModel({
+        // objection caches bound classes by name, per knex instance.
+        name: `T${++defined}`,
+        table: 't',
+        id: spec.columns[0].prop,
+        ...(spec.snakeCase && { columnNames: 'snake_case' }),
+        columns: Object.fromEntries(
+          spec.columns.map(({ prop, name }) => [prop, name ? column(z.number()).name(name) : z.number()]),
+        ),
+      });
+    }
+
+    it('generates specs with and without conflicts', () => {
+      const samples = fc.sample(columnSpec, { numRuns: 1000, seed: 42 });
+      const share = samples.filter(expectedError).length / samples.length;
+
+      expect(share).to.be.within(0.2, 0.8);
+    });
+
+    it('throws exactly on a conflict, and maps rows, ids and queries otherwise', () => {
+      fc.assert(
+        fc.property(columnSpec, (spec) => {
+          const error = expectedError(spec);
+
+          if (error) {
+            expect(() => define(spec)).to.throwError(error);
+
+            return;
+          }
+
+          const { modelClass, query } = define(spec).bindKnex(sqlBuilder);
+          const row = Object.fromEntries(spec.columns.map(({ prop }, i) => [prop, i]));
+          const dbRow = Object.fromEntries(spec.columns.map((it, i) => [columnOf(spec, it), i]));
+
+          expect(modelClass.fromJson(row).$toDatabaseJson()).to.eql(dbRow);
+          expect(modelClass.fromDatabaseJson(dbRow).toJSON()).to.eql(row);
+          expect(modelClass.idColumn).to.be(columnOf(spec, spec.columns[0]));
+
+          for (const it of spec.columns) {
+            const sql = query().where(it.prop, 1).toKnexQuery().toSQL().sql.replace(/[`"]/g, '');
+            expect(sql).to.be(`select t.* from t where ${columnOf(spec, it)} = ?`);
           }
         }),
         { numRuns: NUM_RUNS * 2 },

@@ -144,6 +144,18 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
+  [
+    D,
+    `  columnNames?: 'snake_case';`,
+    `  columnNames?: string;`,
+    'columnNames accepts any casing',
+  ],
+  [
+    D,
+    `  name(column: string): Column<S, F, R, Names>;`,
+    `  name(column: string): Column<S, DefaultFlags, null, Names>;`,
+    '.name() drops the column flags and the reference',
+  ],
   ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
   [
     D,

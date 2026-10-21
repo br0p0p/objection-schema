@@ -168,6 +168,11 @@ export interface Column<
     column: C,
     options?: O,
   ): Column<S, F, ReferenceOf<T, C, O>, Names>;
+  /**
+   * The column's name in the database, when it differs from the property name. Overrides
+   * the model's `columnNames` rule. Rows, inserts, patches and queries keep the property name.
+   */
+  name(column: string): Column<S, F, R, Names>;
 }
 
 export type ColumnInput = StandardSchemaV1 | Column<any, any, any, any>;
@@ -1039,6 +1044,12 @@ export interface ModelConfig<
   base?: B;
   /** Set to `false` to skip runtime validation (types only). */
   validate?: boolean;
+  /**
+   * How property names map to column names: `'snake_case'` stores `firstName` as
+   * `first_name`, like `knexSnakeCaseMappers()`, for this model only. A column's
+   * `.name()` overrides it. Without it, property names are column names.
+   */
+  columnNames?: 'snake_case';
 }
 
 // ---------------------------------------------------------------------------

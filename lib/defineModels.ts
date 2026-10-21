@@ -14,7 +14,8 @@ import type {
   RelationsInput,
   RelationSpecs,
 } from './types';
-import { classicModelHandle, isModelHandle } from './defineModel';
+import { markInRegistry } from './columnNames';
+import { classicModelHandle, defineStatic, isModelHandle } from './defineModel';
 import {
   BelongsToOneRelation,
   HasManyRelation,
@@ -208,32 +209,24 @@ export function defineModels(
     const relationsOfOwner = collected[ownerKey];
 
     // Shadow getter-only mappings on a classic base without mutating that base.
-    // Keep the property replaceable, like an ordinary static class field.
-    Object.defineProperty(ownerClass, 'relationMappings', {
-      configurable: true,
-      enumerable: true,
-      writable: true,
-      value: () => {
-        const mappings: RelationMappings = {};
+    defineStatic(ownerClass, 'relationMappings', () => {
+      const mappings: RelationMappings = {};
 
-        for (const name of Object.keys(relationsOfOwner)) {
-          mappings[name] = toRelationMapping(
-            ownerClass,
-            relationsOfOwner[name].spec,
-            registry,
-            ownerKey,
-          );
-        }
+      for (const name of Object.keys(relationsOfOwner)) {
+        mappings[name] = toRelationMapping(ownerClass, relationsOfOwner[name].spec, registry, ownerKey);
+      }
 
-        return mappings;
-      },
+      return mappings;
     });
   }
 
   // Only once the registry is complete, so that fixing an error and calling again works.
   // Classic classes are added too, but only definitions are checked.
   for (const key of Object.keys(registry.byKey)) {
-    registered.add(registry.byKey[key].modelClass);
+    const { modelClass } = registry.byKey[key];
+    registered.add(modelClass);
+    // Only read for definitions: classic classes keep their own relations anyway.
+    markInRegistry(modelClass);
   }
 
   return registry.handles;
@@ -453,14 +446,17 @@ function toRelationMapping(
   const mapping: RelationMapping<Model> = {
     relation,
     modelClass: targetClass,
+    // Join keys are property names. Each side maps them to its columns with its own
+    // mappers (a definition's column names, or a classic model's `columnNameMappers`).
     join: {
-      from: qualify(ownerClass.getTableName(), join.from),
-      to: qualify(targetClass.getTableName(), join.to),
+      from: qualify(ownerClass.getTableName(), toColumns(ownerClass, join.from)),
+      to: qualify(targetClass.getTableName(), toColumns(targetClass, join.to)),
     },
   };
 
   if (join.through) {
     const { table, from, to, extra } = join.through;
+    // The join table's columns, as written: it has no model.
     mapping.join.through = {
       from: qualify(table, from),
       to: qualify(table, to),
@@ -480,6 +476,12 @@ function toRelationMapping(
   }
 
   return mapping;
+}
+
+function toColumns(modelClass: ModelClass, props: JoinColumns): JoinColumns {
+  return typeof props === 'string'
+    ? modelClass.propertyNameToColumnName(props)
+    : props.map(prop => modelClass.propertyNameToColumnName(prop));
 }
 
 function qualify(table: string, cols: JoinColumns): string | string[] {

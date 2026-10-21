@@ -7,6 +7,7 @@ import type {
   TransactionOrKnex,
 } from 'objection';
 import type { ColumnMeta } from './column';
+import type { Casing } from './columnNames';
 import type { ModelClass } from './objection';
 import type {
   AnyModelHandle,
@@ -18,6 +19,14 @@ import type {
   StrKeys,
 } from './types';
 import { normalizeColumns } from './column';
+import {
+  COLUMN_MAP,
+  columnOf,
+  createColumnMap,
+  createColumnNameMappers,
+  createQueryBuilder,
+  toColumn,
+} from './columnNames';
 import { isModelClass, Model } from './objection';
 import { StandardSchemaValidator } from './StandardSchemaValidator';
 
@@ -72,6 +81,7 @@ interface RuntimeConfig {
   hooks?: object;
   base?: unknown;
   validate?: boolean;
+  columnNames?: unknown;
 }
 
 interface HandleMeta {
@@ -121,6 +131,7 @@ export function defineModel(config: RuntimeConfig): object {
     // inherited, like with classic models.
     base = Model,
     validate = true,
+    columnNames,
   } = config || {};
 
   if (typeof table !== 'string') {
@@ -141,6 +152,23 @@ export function defineModel(config: RuntimeConfig): object {
     }
   }
 
+  const casing: Casing | null = columnNames === 'snake_case' ? columnNames : null;
+
+  if (columnNames !== undefined && !casing) {
+    throw new Error(
+      `defineModel(${className}): \`columnNames\` must be "snake_case", got ${JSON.stringify(columnNames)}`,
+    );
+  }
+
+  // objection applies one set of mappers to a model, so a base's own can't be extended.
+  if ((casing || cols.some(it => it.name)) && base.columnNameMappers) {
+    throw new Error(
+      `defineModel(${className}): \`base\` has its own \`columnNameMappers\`, which can't be combined with \`columnNames\` or \`.name()\``,
+    );
+  }
+
+  const columnMap = createColumnMap(`defineModel(${className})`, cols, casing);
+  const queryBuilder = createQueryBuilder(base.QueryBuilder);
   const tableName = table;
   // Stryker disable next-line UpdateOperator: counting down gives unique ids too.
   const definitionId = definitionCount++;
@@ -150,7 +178,11 @@ export function defineModel(config: RuntimeConfig): object {
   // or throw on the getter-only statics commonly used by classic models/plugins.
   const modelClass: ModelClass = { [className]: class extends base {
     static tableName = tableName;
-    static idColumn = id;
+    // objection's `idColumn` is in column names; the handle's stays in property names.
+    static idColumn = typeof id === 'string' ? toColumn(columnMap, id) : id.map(it => toColumn(columnMap, it));
+    // Maps the property names given to the typed query methods (own and joined models').
+    static QueryBuilder = queryBuilder;
+    static [COLUMN_MAP] = columnMap;
     // SAFETY: objection passes modifiers its query builder, which typed modifiers see through
     // `Query`. It treats `null` like no modifiers.
     static modifiers = modifiers as Modifiers;
@@ -166,6 +198,10 @@ export function defineModel(config: RuntimeConfig): object {
       return `${super.uniqueTag()}_${definitionId}`;
     }
   } }[className];
+
+  if (columnMap) {
+    defineStatic(modelClass, 'columnNameMappers', createColumnNameMappers(columnMap));
+  }
 
   // SAFETY: the values are hook functions; names that aren't hooks throw below.
   const hookFns = hooks as Record<string, Hook>;
@@ -215,7 +251,7 @@ function createModelHandle(modelClass: ModelClass, meta: HandleMeta): RuntimeHan
     },
 
     ref(prop: string) {
-      return modelClass.ref(prop);
+      return modelClass.ref(columnOf(modelClass, prop));
     },
 
     bindKnex(knex: TransactionOrKnex): RuntimeHandle {
@@ -227,6 +263,14 @@ function createModelHandle(modelClass: ModelClass, meta: HandleMeta): RuntimeHan
 
   // SAFETY: `isObjectionModelDefinition` was defined just above (non-enumerable, read-only).
   return Object.freeze(handle) as RuntimeHandle;
+}
+
+/**
+ * Sets a static like a class field would (an own, writable property). An assignment would
+ * call an inherited setter, or throw on the getter-only statics of some classic models.
+ */
+export function defineStatic(modelClass: ModelClass, name: string, value: unknown): void {
+  Object.defineProperty(modelClass, name, { configurable: true, enumerable: true, writable: true, value });
 }
 
 /** Whether a value is a `defineModel()` definition (or a handle from `defineModels()`). */

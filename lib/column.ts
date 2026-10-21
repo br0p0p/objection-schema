@@ -8,6 +8,8 @@ export interface ColumnMeta {
   readonly hasDefault: boolean;
   readonly json: boolean;
   readonly references: Reference | null;
+  /** The column's name in the database, from `.name()`. */
+  readonly name: string | null;
 }
 
 /** A `references()` foreign key at runtime. */
@@ -27,10 +29,12 @@ export interface RuntimeColumn {
   hasDefault: () => RuntimeColumn;
   json: () => RuntimeColumn;
   references: (target: string, column: string, options?: ReferenceOptions) => RuntimeColumn;
+  name: (column: string) => RuntimeColumn;
 }
 
 export interface NormalizedColumn extends ValidatedColumn {
   readonly json: boolean;
+  readonly name: string | null;
 }
 
 // Stryker disable next-line ObjectLiteral: every flag is read for truthiness, so `{}` behaves the same.
@@ -39,6 +43,7 @@ const DEFAULT_META: ColumnMeta = Object.freeze({
   hasDefault: false,
   json: false,
   references: null,
+  name: null,
 });
 
 // `column(schema)` wraps a Standard Schema with database related metadata. Each
@@ -82,6 +87,15 @@ function createColumn(
       }
 
       return with_({ references: createReference(target, targetColumn, options) });
+    },
+    // The column's name in the database, when it isn't the property name (or what
+    // the model's `columnNames` rule makes of it).
+    name: (name: unknown) => {
+      if (typeof name !== 'string' || !name) {
+        throw new Error(`name(): expects a column name (a non-empty string), got ${JSON.stringify(name)}`);
+      }
+
+      return with_({ name });
     },
   });
 }
@@ -180,6 +194,7 @@ export function normalizeColumns(columns: unknown): NormalizedColumn[] {
       generated: meta.generated,
       hasDefault: meta.hasDefault,
       json: meta.json,
+      name: meta.name,
       undefinedMode: probeUndefined(schema, prop),
     });
   });
