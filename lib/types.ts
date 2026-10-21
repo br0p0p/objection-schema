@@ -295,6 +295,8 @@ interface Entry {
   table: string;
   modifiers: string;
   relations: Record<string, RelationDescriptor>;
+  /** The type of the handle's `modelClass`. */
+  modelClass: object;
 }
 
 type Registry = Record<string, Entry>;
@@ -308,6 +310,7 @@ interface SpecEntry<Sp extends ModelSpec, Rels extends Record<string, RelationDe
   table: Sp['table'];
   modifiers: Sp['modifiers'];
   relations: Rels;
+  modelClass: ModelClassOf<BaseOf<Sp>, RowOfColumns<Sp['columns']>>;
 }
 
 type ClassicRelationKeys<M> = {
@@ -332,6 +335,7 @@ interface ClassicEntry<M extends Model> {
       filled: never;
     };
   };
+  modelClass: ModelClass<M>;
 }
 
 type EntryOf<R extends Registry, K> = K extends string
@@ -920,26 +924,76 @@ export interface ModelSpec {
   columns: Columns;
   id: IdSpec;
   modifiers: string;
+  /** The `base` class. Optional so that specs named without it keep working (`typeof Model`). */
+  base?: ModelConstructor<Model>;
 }
+
+/** For lib/: `base`'s constraint, and its default (objection's `Model`). */
+export type BaseClass = ModelConstructor<Model>;
+
+export type DefaultBase = typeof Model;
+
+type BaseOf<Sp extends ModelSpec> = Sp extends { base: infer B extends ModelConstructor<Model> }
+  ? B
+  : typeof Model;
+
+/**
+ * Hooks see the base's instance members without the column fields: the column's schema is what
+ * validates and types the field, and the update and delete hooks get it partial.
+ */
+type HookInstance<B extends ModelConstructor<Model>, Row> = Omit<InstanceType<B>, keyof Row>;
+
+/** Fields the base declares with a type the column's values don't fit, e.g. `id!: string`. */
+type ClashingKeys<I, Row> = {
+  [K in keyof Row & keyof I]: [Row[K]] extends [I[K]] ? never : K;
+}[keyof Row & keyof I];
+
+/**
+ * Instances of the generated class: the base's instance plus the row. The intersection keeps
+ * objection's `this`-typed members (`QueryBuilderType`, `$query()`, custom query builders) bound
+ * to the full instance. On a clash the column wins, and since `Omit` binds those members to the
+ * base's instance type, it's only used then.
+ */
+type ModelInstanceOf<B extends ModelConstructor<Model>, Row> = ([
+  ClashingKeys<InstanceType<B>, Row>,
+] extends [never]
+  ? InstanceType<B>
+  : Omit<InstanceType<B>, ClashingKeys<InstanceType<B>, Row>>)
+& Row;
+
+/**
+ * The generated class: the base's own statics, and objection's static side typed for its
+ * instances. `Model`'s statics are dropped from `B`, because `B`'s own `query()` and friends
+ * would bind `this` to `B` and return instances without the row.
+ */
+type ModelClassOf<B extends ModelConstructor<Model>, Row> = Omit<B, keyof typeof Model>
+  & ModelClassFor<ModelInstanceOf<B, Row>>;
+
+/** The fallback is for a column that clashes with one of `Model`'s own members. */
+type ModelClassFor<I> = I extends Model ? ModelClass<I> : ModelClass<Model>;
 
 type SelfRegistry<Sp extends ModelSpec> = { '~self': SpecEntry<Sp, {}> };
 
-export interface Hooks<Row> {
-  beforeInsert?: (row: Row, context: QueryContext) => void | Promise<void>;
-  afterInsert?: (row: Row, context: QueryContext) => void | Promise<void>;
+/**
+ * Hooks receive the model instance: `Instance` is what the base class adds to the row
+ * (`defineModel` passes the base's instance members, objection's `Model` without a `base`).
+ */
+export interface Hooks<Row, Instance = {}> {
+  beforeInsert?: (row: Instance & Row, context: QueryContext) => void | Promise<void>;
+  afterInsert?: (row: Instance & Row, context: QueryContext) => void | Promise<void>;
   beforeUpdate?: (
-    row: Partial<Row>,
+    row: Instance & Partial<Row>,
     options: ModelOptions,
     context: QueryContext,
   ) => void | Promise<void>;
   afterUpdate?: (
-    row: Partial<Row>,
+    row: Instance & Partial<Row>,
     options: ModelOptions,
     context: QueryContext,
   ) => void | Promise<void>;
-  afterFind?: (row: Row, context: QueryContext) => void | Promise<void>;
-  beforeDelete?: (row: Partial<Row>, context: QueryContext) => void | Promise<void>;
-  afterDelete?: (row: Partial<Row>, context: QueryContext) => void | Promise<void>;
+  afterFind?: (row: Instance & Row, context: QueryContext) => void | Promise<void>;
+  beforeDelete?: (row: Instance & Partial<Row>, context: QueryContext) => void | Promise<void>;
+  afterDelete?: (row: Instance & Partial<Row>, context: QueryContext) => void | Promise<void>;
 }
 
 /** Shared by model definitions and handles to classic models. */
@@ -951,8 +1005,9 @@ export interface ModelHandle<R extends Registry, K> {
   /**
    * The generated (or wrapped classic) model class. Use it where objection expects a class,
    * e.g. `modelClass: () => db.Person.modelClass` in a classic model's `relationMappings`.
+   * A generated class keeps its `base`'s statics, and its instances are the base's plus the row.
    */
-  readonly modelClass: ModelClass<Model>;
+  readonly modelClass: EntryOf<R, K>['modelClass'];
   readonly isObjectionModelDefinition: true;
 
   query(trxOrKnex?: TransactionOrKnex): Query<InitialState<R, K>>;
@@ -987,8 +1042,13 @@ export type AnyModelDefinition = {
 
 export type AnyModelHandle = { readonly '~types': { registry: Registry; model: unknown } };
 
-type ModifierQuery<C extends Columns, Id extends IdSpec, T extends string> = Query<
-  InitialState<SelfRegistry<{ table: T; columns: C; id: Id; modifiers: string }>, '~self'>
+type ModifierQuery<
+  C extends Columns,
+  Id extends IdSpec,
+  T extends string,
+  B extends ModelConstructor<Model>,
+> = Query<
+  InitialState<SelfRegistry<{ table: T; columns: C; id: Id; modifiers: string; base: B }>, '~self'>
 >;
 
 export interface ModelConfig<
@@ -996,6 +1056,7 @@ export interface ModelConfig<
   C extends Columns,
   Id extends IdSpec,
   M extends string,
+  B extends ModelConstructor<Model> = ModelConstructor<Model>,
 > {
   /** Name of the generated class (shows up in errors and stack traces). */
   name?: string;
@@ -1003,10 +1064,13 @@ export interface ModelConfig<
   columns: C;
   /** Id column(s). Defaults to `'id'`. */
   id?: Id;
-  modifiers?: Record<M, (query: ModifierQuery<C, Id, T>, ...args: any[]) => void>;
-  hooks?: Hooks<RowOfColumns<C>>;
-  /** Base model class, e.g. one with plugins mixed in. Defaults to `Model`. */
-  base?: ModelConstructor<Model>;
+  modifiers?: Record<M, (query: ModifierQuery<C, Id, T, B>, ...args: any[]) => void>;
+  hooks?: Hooks<RowOfColumns<C>, HookInstance<B, RowOfColumns<C>>>;
+  /**
+   * Base model class, e.g. one with plugins mixed in. Defaults to `Model`. `modelClass` keeps
+   * its statics, and its instances (and the hooks' `row`) have its members.
+   */
+  base?: B;
   /** Set to `false` to skip runtime validation (types only). */
   validate?: boolean;
 }
