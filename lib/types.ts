@@ -18,7 +18,6 @@ import type {
   Model,
   ModelClass,
   ModelConstructor,
-  ModelObject,
   ModelOptions,
   QueryBuilder,
   QueryContext,
@@ -270,24 +269,45 @@ interface SpecEntry<Sp extends ModelSpec, Rels extends Record<string, RelationDe
   relations: Rels;
 }
 
+/** `M` without index signatures (`[key: string]: any` on a loosely typed base model). */
+type KnownKeys<M> = {
+  [K in keyof M as string extends K ? never : number extends K ? never : symbol extends K ? never : K]: M[K];
+};
+
+/**
+ * `ModelObject<M>` without index signatures: a model's declared, non-function fields.
+ * (`ModelObject<KnownKeys<M> & Model>` would be TS2589, "excessively deep".)
+ */
+type ClassicObject<M> = {
+  // eslint-disable-next-line ts/no-unsafe-function-type -- same as objection's DataPropertyNames: also drops constructor-typed fields like $modelClass
+  [K in keyof KnownKeys<M> as KnownKeys<M>[K] extends Function ? never : K extends 'QueryBuilderType' ? never : K]: KnownKeys<M>[K];
+};
+
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/** The declared fields typed as models (`any` fields are columns, not relations). */
 type ClassicRelationKeys<M> = {
-  [K in keyof M]-?: NonNullable<M[K]> extends Model | readonly Model[] ? K : never;
-}[keyof M];
+  [K in keyof KnownKeys<M>]-?: IsAny<KnownKeys<M>[K]> extends true
+    ? never
+    : NonNullable<KnownKeys<M>[K]> extends Model | readonly Model[]
+      ? K
+      : never;
+}[keyof KnownKeys<M>];
 
 type ClassicElement<T> = NonNullable<T> extends readonly (infer E)[] ? E : NonNullable<T>;
 
 interface ClassicEntry<M extends Model> {
-  row: Omit<ModelObject<M>, ClassicRelationKeys<M>>;
-  insert: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
-  insertResult: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
-  patch: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
+  row: Omit<ClassicObject<M>, ClassicRelationKeys<M>>;
+  insert: Partial<Omit<ClassicObject<M>, ClassicRelationKeys<M>>>;
+  insertResult: Partial<Omit<ClassicObject<M>, ClassicRelationKeys<M>>>;
+  patch: Partial<Omit<ClassicObject<M>, ClassicRelationKeys<M>>>;
   id: string;
   table: string;
   modifiers: string;
   relations: {
     [K in ClassicRelationKeys<M> & string]: {
-      kind: NonNullable<M[K]> extends readonly any[] ? 'many' : 'one';
-      target: ClassicRef<ClassicElement<M[K]>>;
+      kind: NonNullable<KnownKeys<M>[K]> extends readonly any[] ? 'many' : 'one';
+      target: ClassicRef<ClassicElement<KnownKeys<M>[K]>>;
       extra: {};
       filled: never;
     };
@@ -991,7 +1011,7 @@ export type ModelsInput = Record<string, AnyModelDefinition | ClassicModelClass>
 type ColumnsOfInput<X> = X extends { '~spec': infer Sp extends ModelSpec }
   ? StrKeys<Sp['columns']>
   : X extends ClassicModelClass
-    ? StrKeys<Omit<ModelObject<InstanceOf<X>>, ClassicRelationKeys<InstanceOf<X>>>>
+    ? StrKeys<Omit<ClassicObject<InstanceOf<X>>, ClassicRelationKeys<InstanceOf<X>>>>
     : never;
 
 type JoinColumns<X> = ColumnsOfInput<X> | readonly ColumnsOfInput<X>[];
