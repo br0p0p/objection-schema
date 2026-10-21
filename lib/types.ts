@@ -305,6 +305,8 @@ interface Entry {
   row: object;
   /** The row's values in queries: the database types of codec columns. */
   db: object;
+  /** Properties with a codec, which decodes whatever is read under their name. */
+  codecs: string;
   insert: object;
   insertResult: object;
   patch: object;
@@ -319,6 +321,7 @@ type Registry = Record<string, Entry>;
 interface SpecEntry<Sp extends ModelSpec, Rels extends Record<string, RelationDescriptor>> {
   row: RowOfColumns<Sp['columns']>;
   db: DbOfColumns<Sp['columns']>;
+  codecs: CodecKeys<Sp['columns']> & string;
   insert: InsertOfColumns<Sp['columns']>;
   insertResult: InsertResultOfColumns<Sp['columns'], Sp['id']>;
   patch: PatchOfColumns<Sp['columns']>;
@@ -337,6 +340,7 @@ type ClassicElement<T> = NonNullable<T> extends readonly (infer E)[] ? E : NonNu
 interface ClassicEntry<M extends Model> {
   row: Omit<ModelObject<M>, ClassicRelationKeys<M>>;
   db: Omit<ModelObject<M>, ClassicRelationKeys<M>>;
+  codecs: never;
   insert: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
   insertResult: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
   patch: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
@@ -620,15 +624,25 @@ type SelectedValue<S extends QueryState, P>
 /** Output property name of a column reference: `pets.name` -> `name` */
 type OutputName<P extends string> = P extends `${string}.${infer C}` ? C : P;
 
-// The codecs decode by property name, so a column selected under another name isn't decoded.
+/**
+ * The model's codecs decode by the result's property name, not by the source column: whatever is
+ * read under a codec column's name is decoded (`select('note as total')`, a joined `pets.total`),
+ * and a column selected under another name isn't.
+ */
+type OutputValue<S extends QueryState, A, Value> = A extends E_<S>['codecs']
+  ? RowOf<R_<S>, K_<S>>[A & keyof RowOf<R_<S>, K_<S>>]
+  : Value;
+
 type Selection<S extends QueryState, P> = P extends `${infer Ref} as ${infer Alias}`
   ? {
-      [A in Trim<Alias>]: A extends OutputName<Trim<Ref>>
-        ? SelectedValue<S, Trim<Ref>>
-        : ColumnValue<S, Trim<Ref>>;
+      [A in Trim<Alias>]: OutputValue<
+        S,
+        A,
+        A extends OutputName<Trim<Ref>> ? SelectedValue<S, Trim<Ref>> : ColumnValue<S, Trim<Ref>>
+      >;
     }
   : P extends string
-    ? { [A in OutputName<P>]: SelectedValue<S, P> }
+    ? { [A in OutputName<P>]: OutputValue<S, A, SelectedValue<S, P>> }
     : never;
 
 export type SelectArg<S extends QueryState> = S['refs'] | `${S['refs']} as ${string}`;

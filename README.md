@@ -139,8 +139,11 @@ await Invoice.query().where('total', '>', '100.0000'); // query values are datab
   subqueries) set in hooks are left to objection.
 - **Query values aren't converted:** `where`, `whereIn`, … send their values to the database as
   they are, so for a codec column they're typed as the codec's database type (`where('total', bn)`
-  is a type error, `where('total', bn.toFixed(4))` isn't). Columns selected under another name
-  (`select('total as t')`) and joined columns (`pets.total`) aren't decoded, and are typed that way.
+  is a type error, `where('total', bn.toFixed(4))` isn't).
+- **Decoded by the result's property name:** a codec runs on whatever is read under its column's
+  name, whichever column it comes from. So `select('total as t')` and joined columns
+  (`pets.total`) aren't decoded, while `select('note as total')` or a joined `pets.total` on a
+  model with a `total` codec are. The select types follow the same rule.
 - **Order:** the codecs run where objection handles JSON columns. On reads, the base's
   `$parseDatabaseJson` runs first (column name mappers, `.json()` parsing, a base class's own
   conversions), then `fromDatabase`. On writes, `toDatabase` runs first, then the base's

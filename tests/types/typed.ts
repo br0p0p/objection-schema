@@ -753,7 +753,8 @@ const decimalCodec: ColumnCodec<Decimal, string> = {
 
 const CodecOwner = defineModel({
   table: 'codec_owners',
-  columns: { id: column(z.number()).generated(), name: z.string() },
+  // A plain column named like a codec column of Invoice.
+  columns: { id: column(z.number()).generated(), name: z.string(), total: z.string() },
 });
 
 const CodecInvoice = defineModel({
@@ -815,6 +816,17 @@ async function codecQueries(decimal: Decimal) {
   // Selected columns are decoded, an alias isn't (the codec only knows the property name).
   const selected = await codecDb.Invoice.query().select('total', 'issuedOn as day');
   expectType<Equal<typeof selected, { total: Decimal; day: number }[]>>();
+
+  // The codecs decode by the result's property name: whatever lands under a codec column's name
+  // is decoded, whichever column it was selected from.
+  const renamed = await codecDb.Invoice.query().select('note as total', 'codec_invoices.total');
+  expectType<Equal<typeof renamed, { total: Decimal }[]>>();
+
+  const joinedOwner = await codecDb.Invoice.query()
+    .joinRelated('owner')
+    .select('owner.total', 'owner.name as issuedOn', 'owner.total as ownerTotal');
+
+  expectType<Equal<typeof joinedOwner, { total: Decimal; issuedOn: Date; ownerTotal: string }[]>>();
 
   // Joined columns are read as the database returns them, and queried that way.
   const joined = await codecDb.Owner.query()

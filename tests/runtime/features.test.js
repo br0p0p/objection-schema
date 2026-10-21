@@ -808,6 +808,22 @@ describe('features', () => {
       expect((await stored(inserted.id)).total).to.be('9');
     });
 
+    it('decodes whatever is read under a codec column\'s name, by the result\'s property', async () => {
+      const db = registry();
+      const owner = await db.Owner.query().insert({ name: '7' });
+      await db.Invoice.query().insert({ ownerId: owner.id, total: new Cents(1), note: '150' });
+
+      const [renamed] = await db.Invoice.query().select('note as total');
+      expect(renamed.total).to.eql(new Cents(150));
+
+      const [joined] = await db.Invoice.query().joinRelated('owner').select('owner.name as total');
+      expect(joined.total).to.eql(new Cents(7));
+
+      // Selected under another name, the codec column isn't decoded.
+      const [aliased] = await db.Invoice.query().select('total as amount');
+      expect(aliased.amount).to.be('1');
+    });
+
     it('an upsertGraph without changes writes nothing', async () => {
       const db = registry();
 

@@ -147,8 +147,8 @@ const mutants = [
   ],
   [
     D,
-    `        ? SelectedValue<S, Trim<Ref>>\n        : ColumnValue<S, Trim<Ref>>;`,
-    `        ? SelectedValue<S, Trim<Ref>>\n        : SelectedValue<S, Trim<Ref>>;`,
+    `A extends OutputName<Trim<Ref>> ? SelectedValue<S, Trim<Ref>> : ColumnValue<S, Trim<Ref>>`,
+    `A extends OutputName<Trim<Ref>> ? SelectedValue<S, Trim<Ref>> : SelectedValue<S, Trim<Ref>>`,
     'aliased codec columns are typed as decoded',
   ],
   [
@@ -168,6 +168,12 @@ const mutants = [
     `  readonly toDatabase: (value: Out) => Db;`,
     `  toDatabase(value: Out): Db;`,
     'toDatabase is a bivariant method',
+  ],
+  [
+    D,
+    `type OutputValue<S extends QueryState, A, Value> = A extends E_<S>['codecs']`,
+    `type OutputValue<S extends QueryState, A, Value> = A extends never`,
+    'values selected under a codec column\'s name are typed as not decoded',
   ],
   [D, `    codec: R extends null\n`, `    codec: null extends null\n`, 'codec() on a references() column is allowed'],
   [D, `    target: X extends null\n`, `    target: null extends null\n`, 'references() on a codec column is allowed'],
