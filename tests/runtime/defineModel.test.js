@@ -632,6 +632,89 @@ describe('objection-schema', () => {
         const db = defineModels({ Owner, Pet });
         expect(db.Owner).to.be(Owner);
       });
+
+      describe('a definition whose relations objection read before the registry', () => {
+        // objection caches a class's relations the first time it reads them, so the
+        // relations set by a later registry would be silently ignored.
+        const readBefore = /the relations of "Owner" \(Owner\) were read before this registry was created/;
+
+        it('withGraphFetched (the query fails, then defineModels throws)', async () => {
+          const { Owner, Pet } = makeModels();
+          let queryError;
+          await Owner.modelClass.query().withGraphFetched('pets').catch((err) => {
+            queryError = err;
+          });
+          expect(queryError.message).to.match(/unknown relation "pets"/);
+
+          expect(() => defineModels({ Owner, Pet })).to.throwError((err) => {
+            expect(err.message).to.equal(
+              'defineModels: the relations of "Owner" (Owner) were read before this registry was created, so objection has cached them without the registry\'s relations. Make sure defineModels() runs before the model is used, e.g. by importing models only from the module that calls it, and call defineModel() again.',
+            );
+          });
+        });
+
+        it('getRelationNames(), an insert, $toDatabaseJson()', async () => {
+          const named = makeModels();
+          named.Owner.modelClass.getRelationNames();
+          throws(() => defineModels(named), readBefore);
+
+          const inserted = makeModels();
+          await inserted.Owner.modelClass.query().insert({ firstName: 'I', lastName: 'N' });
+          throws(() => defineModels(inserted), readBefore);
+
+          const json = makeModels();
+          const owner = new json.Owner.modelClass();
+          owner.firstName = 'J';
+          expect(owner.$toDatabaseJson()).to.eql({ firstName: 'J' });
+          throws(() => defineModels(json), readBefore);
+
+          // Only forward relations, from a `references()` column.
+          const forward = makeModels();
+          forward.Pet.modelClass.getRelationNames();
+          throws(() => defineModels(forward), /the relations of "Pet" \(Pet\) were read before/);
+        });
+
+        it('is not checked for models that get no relations, or for a base class', async () => {
+          const { Owner, Pet } = makeModels();
+          const Lone = defineModel({ table: 'movies', columns: { id: z.number() } });
+          Lone.modelClass.getRelationNames();
+          Movie.getRelationNames();
+
+          class Base extends Model {}
+          Base.getRelationNames();
+          const Kept = defineModel({
+            name: 'Kept',
+            base: Base,
+            table: 'animals',
+            columns: {
+              id: column(z.number()).generated(),
+              name: z.string(),
+              species: z.string(),
+              ownerId: column(z.number().nullable()).references('Owner', 'id', { as: 'keeper' }),
+            },
+          });
+
+          const models = defineModels({ Owner, Pet, Lone, Movie, Kept });
+          expect(Lone.modelClass.getRelationNames()).to.eql([]);
+          expect(Kept.modelClass.getRelationNames()).to.eql(['keeper']);
+          await models.Owner.query().insertGraph({ firstName: 'O', lastName: 'W', pets: [{ name: 'Rex', species: 'dog' }] });
+          const [owner] = await models.Owner.query().withGraphFetched('pets');
+          expect(owner.pets[0].name).to.equal('Rex');
+        });
+
+        it('leaves the definitions free for a retry with a fresh one', async () => {
+          const { Owner, Pet } = makeModels();
+          Owner.modelClass.getRelationNames();
+          throws(() => defineModels({ Owner, Pet }), readBefore);
+          throws(() => defineModels({ Owner, Pet }), readBefore);
+
+          const Fresh = makeModels().Owner;
+          const models = defineModels({ Owner: Fresh, Pet });
+          await models.Owner.query().insertGraph({ firstName: 'O', lastName: 'W', pets: [{ name: 'Rex', species: 'dog' }] });
+          const [pet] = await models.Pet.query().withGraphFetched('owner.pets');
+          expect(pet.owner.pets[0].name).to.equal('Rex');
+        });
+      });
     });
   });
 

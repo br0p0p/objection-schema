@@ -20,6 +20,7 @@ import {
   HasManyRelation,
   HasOneRelation,
   HasOneThroughRelation,
+  haveRelationsBeenRead,
   isModelClass,
   ManyToManyRelation,
 } from './objection';
@@ -95,7 +96,8 @@ const registered = new WeakSet<ModelClass>();
  * column, is a type error (and a runtime error).
  *
  * A definition can be part of one registry only (its relations are set on its model
- * class); passing it to a second `defineModels` call throws.
+ * class); passing it to a second `defineModels` call throws. So does a definition that gets
+ * relations but whose relations objection already read (and cached), e.g. by an eager query.
  */
 export function defineModels<
   M extends ModelsInput,
@@ -187,6 +189,17 @@ export function defineModels(
 
     for (const name of Object.keys(specs)) {
       add(ownerKey, name, specs[name], `defineModels relations for ${ownerKey}`);
+    }
+  }
+
+  // Before any class is changed, so that fixing an error and calling again works. Only
+  // definitions that get relations: a cached `{}` is right for the others, and `add` keeps
+  // classic classes (whose cache is their own) out of `collected`.
+  for (const ownerKey of Object.keys(collected)) {
+    if (haveRelationsBeenRead(registry.byKey[ownerKey].modelClass)) {
+      throw new Error(
+        `defineModels: the relations of "${ownerKey}" (${registry.handles[ownerKey].name}) were read before this registry was created, so objection has cached them without the registry's relations. Make sure defineModels() runs before the model is used, e.g. by importing models only from the module that calls it, and call defineModel() again.`,
+      );
     }
   }
 
