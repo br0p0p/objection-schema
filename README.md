@@ -190,17 +190,6 @@ When new relations are declared, they replace the inherited `relationMappings`, 
 merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
 hook of the same name (they aren't automatically chained).
 
-Typed through the definition, a classic model's fields get the same `Row` as through `db`.
-`RowWithGraph` through the definition doesn't know the registry's relations and reports them as
-unknown relations, so use it through `db` wherever that isn't circular. A cast to a hand-written type
-hides the cycle, because the cast's type no longer depends on `db`; it's the definition under
-another name, and removing the cast brings the error back:
-
-```ts
-export const classic = db as unknown as { Person: typeof Person };
-// in the classic class: friends!: (Model & Row<typeof classic.Person>)[];
-```
-
 `modelClass` is typed from the base, so existing code that takes the class keeps working without
 casts: it has the base's own statics (`Pet.modelClass.deleteType`), and its instances
 (`new Pet.modelClass()`, `InstanceType<typeof Pet.modelClass>`, `Pet.modelClass.query()`, a
@@ -213,6 +202,17 @@ classic model in a registry gets `ModelClass<Movie>`, without its own statics.
 Hooks receive the model instance, and their `row` is typed so: the base's members (objection's
 `Model` without a `base`) plus the row, with the row fields partial in the update and delete
 hooks, so `row.$query()` or a base method needs no cast.
+
+Typed through the definition, a classic model's fields get the same `Row` as through `db`.
+`RowWithGraph` through the definition doesn't know the registry's relations and reports them as
+unknown relations, so use it through `db` wherever that isn't circular. A cast to a hand-written type
+hides the cycle, because the cast's type no longer depends on `db`; it's the definition under
+another name, and removing the cast brings the error back:
+
+```ts
+export const classic = db as unknown as { Person: typeof Person };
+// in the classic class: friends!: (Model & Row<typeof classic.Person>)[];
+```
 
 [Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
 sources, executable migration slices, adaptations and bugs found. These are incremental
