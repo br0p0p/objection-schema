@@ -53,6 +53,12 @@ const mutants = [
   ],
   [
     D,
+    `type InvalidExpressionPaths<R extends Registry, K, X> = X extends unknown`,
+    `type InvalidExpressionPaths<R extends Registry, K, X> = [X] extends [unknown]`,
+    'union expressions are not checked member by member',
+  ],
+  [
+    D,
     `  All extends string = U,\n> = U extends`,
     `  All extends string = U,\n> = never extends U ? never : U extends`,
     'duplicate relations are not reported',

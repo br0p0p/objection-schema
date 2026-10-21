@@ -254,6 +254,17 @@ async function queries() {
   db.Person.query().withGraphFetched('pets.ownr');
   // @ts-expect-error unknown relation (object)
   db.Person.query().withGraphFetched({ pets: true, pest: true });
+  // A union expression is checked member by member.
+  const valid = Math.random() > 0.5 ? 'pets' : 'children';
+  const oneBad = Math.random() > 0.5 ? 'pets' : 'pest';
+  const allBad = Math.random() > 0.5 ? 'pest' : 'nope';
+  db.Person.query().withGraphFetched(valid);
+  // @ts-expect-error unknown relation (one member of a union)
+  db.Person.query().withGraphFetched(oneBad);
+  // @ts-expect-error unknown relation (every member of a union)
+  db.Person.query().withGraphFetched(allBad);
+  // @ts-expect-error unknown relation (object union)
+  db.Person.query().withGraphFetched(Math.random() > 0.5 ? { pets: true } : { pest: true });
 
   // modifyGraph paths come from the previous expression; the callback is typed for the target.
   db.Person.query()
@@ -398,6 +409,22 @@ async function queries() {
     RowWithGraph<typeof db.Person, { pets: true; pest: true }>,
     { '~error': 'unknown relation: pest' }
   >>();
+
+  // Union expressions are checked member by member, and report every unknown relation.
+  expectType<Equal<
+    RowWithGraph<typeof db.Person, 'pets' | 'pest'>,
+    { '~error': 'unknown relation: pest' }
+  >>();
+  expectType<Equal<
+    RowWithGraph<typeof db.Person, 'pest' | 'nope'>,
+    { '~error': 'unknown relation: pest' | 'unknown relation: nope' }
+  >>();
+  // A union of valid expressions is not an error.
+  expectType<Equal<'~error' extends keyof RowWithGraph<typeof db.Person, 'pets' | 'children'> ? true : false, false>>();
+
+  // An object union is rejected by the constraint, at the annotation.
+  // @ts-expect-error unknown relation (object union)
+  type PetsOrPest = RowWithGraph<typeof db.Person, { pets: true } | { pest: true }>;
 
   // A nested object is checked by the constraint already, at the annotation.
   // @ts-expect-error unknown nested relation (object)

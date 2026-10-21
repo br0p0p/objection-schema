@@ -417,9 +417,15 @@ type InvalidRelationPaths<R extends Registry, K, E, Prefix extends string = ''> 
       : `${Prefix}${P}`;
 }[StrKeys<E>];
 
+// Checks each member of a union expression on its own: a union's keys are only the keys its
+// members share, so an unknown relation in one member would go unreported.
+type InvalidExpressionPaths<R extends Registry, K, X> = X extends unknown
+  ? InvalidRelationPaths<R, K, ToExpressionObject<X>>
+  : never;
+
 type CheckExpression<R extends Registry, K, X> = string extends X
   ? unknown // Not a literal (e.g. the constraint itself while the editor computes completions).
-  : InvalidRelationPaths<R, K, ToExpressionObject<X>> extends infer P
+  : InvalidExpressionPaths<R, K, X> extends infer P
     ? IsNever<P> extends true
       ? unknown
       : { '~error': `unknown relation: ${P & string}` }
