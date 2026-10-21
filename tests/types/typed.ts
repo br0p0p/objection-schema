@@ -825,6 +825,110 @@ conduit.Favorite.query().findById(['ann', 2]);
 
 toQueryBuilder(conduit.Article.query()).select(toQueryBuilder(conduit.Article.relatedQuery('favoritedBy')).count().as('favoritesCount'));
 
+// ----- classic models on a loosely typed base (issue #12) -----
+
+// Legacy apps often put an `any` index signature on a shared base model. The registry ignores
+// the index signature: the declared fields are the row, and a field typed `any` is a column.
+class LooseBase extends Model {
+  [property: string]: any;
+}
+
+class LooseOwner extends LooseBase {
+  static tableName = 'loose_owners';
+  id!: number;
+  name!: string;
+  nickname?: string;
+  readonly createdAt!: Date;
+  data!: any;
+  pets?: LoosePetClassic[];
+  bestFriend?: LooseOwner | null;
+}
+
+class LoosePetClassic extends LooseBase {
+  static tableName = 'loose_pets_classic';
+  id!: number;
+  ownerId!: number;
+}
+
+const LoosePet = defineModel({
+  table: 'loose_pets',
+  columns: {
+    id: column(z.number()).generated(),
+    ownerId: column(z.number()).references('Owner', 'id'),
+  },
+});
+
+const loose = defineModels({ Owner: LooseOwner, Pet: LoosePet, PetClassic: LoosePetClassic });
+
+expectType<
+  Equal<
+    Row<typeof loose.Owner>,
+    { id: number; name: string; nickname?: string; readonly createdAt: Date; data: any }
+  >
+>();
+
+loose.Owner.query().where('name', 'x').where('data', 1).where('nickname', 'n');
+
+// @ts-expect-error undeclared column on a classic model with an index signature
+loose.Owner.query().where('nmae', 'x');
+
+async function looseClassic() {
+  const [owner] = await loose.Owner.query().withGraphFetched('[pets, bestFriend]');
+  expectType<Equal<typeof owner.name, string>>();
+  expectType<Equal<(typeof owner.pets)[number]['ownerId'], number>>();
+  loose.Owner.relatedQuery('pets').where('ownerId', 1);
+  // @ts-expect-error a field typed `any` is a column, not a relation
+  loose.Owner.query().withGraphFetched('data');
+  // @ts-expect-error the index signature doesn't make every name a relation
+  loose.Owner.query().withGraphFetched('anything');
+}
+
+const LooseBadPet = defineModel({
+  table: 'loose_pets',
+  columns: { id: z.number(), ownerId: column(z.number()).references('Owner', 'nope') },
+});
+
+// @ts-expect-error `nope` is not a column of the classic model, despite its index signature
+defineModels({ Owner: LooseOwner, Pet: LooseBadPet });
+
+relations(LoosePet, r => ({
+  owner: r.belongsToOne(LooseOwner, { from: 'ownerId', to: 'id' }),
+  // @ts-expect-error `nope` is not a column of the classic model
+  typo: r.belongsToOne(LooseOwner, { from: 'ownerId', to: 'nope' }),
+}));
+
+// Without an index signature, a field typed `any` (or an array of `any`) is a column too.
+class AnyData extends Model {
+  static tableName = 'any_data';
+  id!: number;
+  data!: any;
+  tags!: any[];
+  labels!: readonly any[] | null;
+  movies?: Movie[];
+}
+
+const anyDb = defineModels({ AnyData, Movie });
+
+expectType<
+  Equal<Row<typeof anyDb.AnyData>, { id: number; data: any; tags: any[]; labels: readonly any[] | null }>
+>();
+
+expectType<Equal<Row<typeof anyDb.Movie>, { id: number; title: string }>>();
+
+async function anyFields() {
+  const [withMovies] = await anyDb.AnyData.query().withGraphFetched('movies');
+  expectType<Equal<(typeof withMovies.movies)[number]['title'], string>>();
+}
+
+// @ts-expect-error a field typed `any` is a column, not a relation
+anyDb.AnyData.query().withGraphFetched('data');
+
+// @ts-expect-error a field typed `any[]` is a column, not a relation
+anyDb.AnyData.query().withGraphFetched('tags');
+
+// @ts-expect-error a field typed `readonly any[] | null` is a column, not a relation
+anyDb.AnyData.query().withGraphFetched('labels');
+
 // ----- base: `modelClass` keeps the base's statics and instance members -----
 
 class AppModel extends Model {

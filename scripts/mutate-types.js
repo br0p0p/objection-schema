@@ -140,6 +140,24 @@ const mutants = [
   ],
   [
     D,
+    `[K in keyof M as string extends K ? never : number extends K`,
+    `[K in keyof M as number extends K`,
+    'classic models keep string index signatures',
+  ],
+  [
+    D,
+    `[K in keyof KnownKeys<M>]-?: IsAny<ClassicElement<KnownKeys<M>[K]>> extends true`,
+    `[K in keyof KnownKeys<M>]-?: false extends true`,
+    'classic fields typed `any` count as relations',
+  ],
+  [
+    D,
+    `[K in keyof KnownKeys<M>]-?: IsAny<ClassicElement<KnownKeys<M>[K]>> extends true`,
+    `[K in keyof KnownKeys<M>]-?: IsAny<KnownKeys<M>[K]> extends true`,
+    'classic fields typed `any[]` count as relations',
+  ],
+  [
+    D,
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'maybe'>>;`,
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
