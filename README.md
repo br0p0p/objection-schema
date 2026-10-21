@@ -174,6 +174,7 @@ export const { column } = defineModelNames('Person', 'Animal', 'Vet', 'Movie');
 | Classic models in a registry  | `defineModels({ Person, Movie })`. `db.Movie.query()` gets the typed query API; row types come from the class's fields, and model-typed fields (`actors?: Person[]`) become typed relations. |
 | Relations to classic models   | Any of the three styles can target a classic class.                                                                                                                                          |
 | Classic models → definitions  | Use the generated class: `modelClass: () => db.Person.modelClass` in `relationMappings`.                                                                                                     |
+| Classic models' field types   | Type them with the definition, `Row<typeof Person>`. If the class is in `db`, `Row<typeof db.Person>` is circular (TS7022): the registry's type is built from the class's fields.            |
 | Classic models' own relations | Stay in `relationMappings`; the new API can't add relations to classic models.                                                                                                               |
 | Results                       | Real model instances (`$relatedQuery`, `toJSON`, … work), typed as plain rows.                                                                                                               |
 | Graphs                        | `insertGraph`, `upsertGraph`, `withGraphFetched`, `withGraphJoined` across both kinds.                                                                                                       |
@@ -201,6 +202,17 @@ classic model in a registry gets `ModelClass<Movie>`, without its own statics.
 Hooks receive the model instance, and their `row` is typed so: the base's members (objection's
 `Model` without a `base`) plus the row, with the row fields partial in the update and delete
 hooks, so `row.$query()` or a base method needs no cast.
+
+Typed through the definition, a classic model's fields get the same `Row` as through `db`.
+`RowWithGraph` through the definition doesn't know the registry's relations and reports them as
+unknown relations, so use it through `db` wherever that isn't circular. A cast to a hand-written type
+hides the cycle, because the cast's type no longer depends on `db`; it's the definition under
+another name, and removing the cast brings the error back:
+
+```ts
+export const classic = db as unknown as { Person: typeof Person };
+// in the classic class: friends!: (Model & Row<typeof classic.Person>)[];
+```
 
 [Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
 sources, executable migration slices, adaptations and bugs found. These are incremental

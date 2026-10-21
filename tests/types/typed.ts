@@ -393,6 +393,35 @@ async function queries() {
     };
   }
 
+  // A classic model in a registry types its fields through definitions, not the
+  // registry (typing `itemOptions` with `Row<typeof catalog.ItemOption>` is a circularity error).
+  const ItemOptionDefinition = defineModel({
+    table: 'item_options',
+    columns: { id: z.number(), itemId: z.number(), label: z.string() },
+  });
+
+  class Item extends Model {
+    static tableName = 'items';
+    id!: number;
+    itemOptions!: (Model & Row<typeof ItemOptionDefinition>)[];
+  }
+
+  const itemOptionRelations = relations(ItemOptionDefinition, r => ({
+    item: r.belongsToOne(Item, { from: 'itemId', to: 'id' }),
+  }));
+
+  const catalog = defineModels({ Item, ItemOption: ItemOptionDefinition }, [itemOptionRelations]);
+
+  type ItemOptionRow = { id: number; itemId: number; label: string };
+
+  expectType<Equal<Item['itemOptions'][number], Model & ItemOptionRow>>();
+  expectType<Equal<Row<typeof catalog.ItemOption>, ItemOptionRow>>();
+  // The definition's own types don't know the registry's relations.
+  expectType<
+    Equal<RowWithGraph<typeof ItemOptionDefinition, 'item'>, { '~error': 'unknown relation: item' }>
+  >();
+  expectType<Equal<RowWithGraph<typeof catalog.ItemOption, 'item'>['item'], { id: number } | null>>();
+
   // Escape hatch to the full classic QueryBuilder API.
   toQueryBuilder(db.Person.query()).whereJsonSupersetOf('address', { city: 'x' });
 
