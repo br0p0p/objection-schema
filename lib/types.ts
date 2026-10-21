@@ -441,9 +441,15 @@ type InvalidRelationPaths<R extends Registry, K, E, Prefix extends string = ''> 
       : `${Prefix}${P}`;
 }[StrKeys<E>];
 
+// Checks each member of a union expression on its own: a union's keys are only the keys its
+// members share, so an unknown relation in one member would go unreported.
+type InvalidExpressionPaths<R extends Registry, K, X> = X extends unknown
+  ? InvalidRelationPaths<R, K, ToExpressionObject<X>>
+  : never;
+
 type CheckExpression<R extends Registry, K, X> = string extends X
   ? unknown // Not a literal (e.g. the constraint itself while the editor computes completions).
-  : InvalidRelationPaths<R, K, ToExpressionObject<X>> extends infer P
+  : InvalidExpressionPaths<R, K, X> extends infer P
     ? IsNever<P> extends true
       ? unknown
       : { '~error': `unknown relation: ${P & string}` }
@@ -1486,11 +1492,16 @@ export type Patch<H extends AnyModelHandle> = EntryOf<
 /** The resolved result of a typed query: `Result<typeof query>` */
 export type Result<Q extends AnyQuery> = Q['~result'];
 
-/** A row together with relations, as returned by `withGraphFetched(expression)`. */
+/**
+ * A row together with relations, as returned by `withGraphFetched(expression)`. An expression
+ * `withGraphFetched` rejects resolves to its error, `{ '~error': 'unknown relation: …' }`.
+ */
 export type RowWithGraph<
   H extends AnyModelHandle,
   X extends RelationExpressionInput<HandleInfo<H>['r'], HandleInfo<H>['k']>,
-> = Simplify<
-  RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
-  & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
->;
+> = CheckExpression<HandleInfo<H>['r'], HandleInfo<H>['k'], X> extends { '~error': infer E }
+  ? { '~error': E }
+  : Simplify<
+    RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
+    & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
+  >;

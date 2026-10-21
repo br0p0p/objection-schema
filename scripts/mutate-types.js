@@ -47,6 +47,18 @@ const mutants = [
   ],
   [
     D,
+    `> = CheckExpression<HandleInfo<H>['r'], HandleInfo<H>['k'], X> extends { '~error': infer E }`,
+    `> = unknown extends { '~error': infer E }`,
+    'RowWithGraph drops unknown relations',
+  ],
+  [
+    D,
+    `type InvalidExpressionPaths<R extends Registry, K, X> = X extends unknown`,
+    `type InvalidExpressionPaths<R extends Registry, K, X> = [X] extends [unknown]`,
+    'union expressions are not checked member by member',
+  ],
+  [
+    D,
     `  All extends string = U,\n> = U extends`,
     `  All extends string = U,\n> = never extends U ? never : U extends`,
     'duplicate relations are not reported',
