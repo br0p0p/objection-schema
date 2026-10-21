@@ -542,6 +542,37 @@ describe('features', () => {
       expect(Object.keys(Base.modifiers)).to.eql(['unused']);
     });
 
+    it('the class keeps the base\'s statics and members, as typed (tests/types/typed.ts)', async () => {
+      class AppModel extends Model {
+        static deleteType = 'soft';
+        static softDelete() { return 'deleted'; }
+        fetchExtra() { return `extra ${this.name}`; }
+      }
+
+      const seen = [];
+
+      const Owner = defineModel({
+        base: AppModel,
+        table: 'owners',
+        columns: ownerColumns(),
+        hooks: { beforeInsert(row) { seen.push(row.fetchExtra()); } },
+      });
+
+      const db = defineModels({ Owner });
+
+      for (const modelClass of [Owner.modelClass, db.Owner.modelClass, Owner.bindKnex(knex).modelClass]) {
+        expect(modelClass.deleteType).to.be('soft');
+        expect(modelClass.softDelete()).to.be('deleted');
+        expect(modelClass.fromJson({ name: 'A' }).fetchExtra()).to.be('extra A');
+      }
+
+      await Owner.modelClass.query().insert({ name: 'B' });
+      expect(seen).to.eql(['extra B']);
+      const [owner] = await Owner.modelClass.query();
+      expect(owner).to.be.an(AppModel);
+      expect(owner.fetchExtra()).to.be('extra B');
+    });
+
     it('`validate: false` keeps the types but skips runtime validation', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns(), validate: false });
 
@@ -1029,6 +1060,87 @@ describe('features', () => {
       const Bound = Owner.bindKnex(knex);
       expect(Bound.modelClass).not.to.be(Owner.modelClass);
       expect(await Bound.query().resultSize()).to.be(2);
+    });
+
+    describe('bindKnex gives each definition its own bound class', () => {
+      it('two definitions of the same table', async () => {
+        const Owner1 = defineModel({ table: 'owners', columns: ownerColumns() });
+
+        const Owner2 = defineModel({
+          table: 'owners',
+          columns: { ...ownerColumns(), name: z.string().min(5) },
+        });
+
+        const Bound1 = Owner1.bindKnex(knex);
+        const Bound2 = Owner2.bindKnex(knex);
+
+        expect(Bound2.modelClass).not.to.be(Bound1.modelClass);
+        expect(Object.getPrototypeOf(Bound1.modelClass)).to.be(Owner1.modelClass);
+        expect(Object.getPrototypeOf(Bound2.modelClass)).to.be(Owner2.modelClass);
+
+        await Bound1.query().insert({ name: 'ab' });
+        let error;
+        await Bound2.query().insert({ name: 'ab' }).catch((err) => {
+          error = err;
+        });
+        expect(error).to.be.a(ValidationError);
+        expect(await Bound1.query().resultSize()).to.be(1);
+      });
+
+      it('relations of two registries over the same tables', () => {
+        const makeRegistry = () => {
+          const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
+          const Pet = defineModel({
+            table: 'pets',
+            columns: {
+              id: column(z.number()).generated(),
+              name: z.string(),
+              ownerId: z.number(),
+            },
+          });
+
+          return defineModels({ Owner, Pet }, [
+            relations(Owner, r => ({ pets: r.hasMany(Pet, { from: 'id', to: 'ownerId' }) })),
+          ]);
+        };
+
+        const db1 = makeRegistry();
+        const db2 = makeRegistry();
+
+        const Bound1 = db1.Owner.bindKnex(knex).modelClass;
+        const Bound2 = db2.Owner.bindKnex(knex).modelClass;
+
+        expect(Bound2).not.to.be(Bound1);
+        const related1 = Bound1.getRelation('pets').relatedModelClass;
+        const related2 = Bound2.getRelation('pets').relatedModelClass;
+        expect(Object.getPrototypeOf(related1)).to.be(db1.Pet.modelClass);
+        expect(Object.getPrototypeOf(related2)).to.be(db2.Pet.modelClass);
+      });
+
+      it('a subclass of a generated class', () => {
+        const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
+        class SubOwner extends Owner.modelClass {}
+
+        const Bound = Owner.modelClass.bindKnex(knex);
+        const BoundSub = SubOwner.bindKnex(knex);
+
+        expect(BoundSub).not.to.be(Bound);
+        expect(Object.getPrototypeOf(BoundSub)).to.be(SubOwner);
+        expect(SubOwner.uniqueTag()).not.to.be(Owner.modelClass.uniqueTag());
+      });
+
+      it('keeps objection\'s tag, and caches the bound class', () => {
+        const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
+        // The format isn't API, but objection's own tag stays in it.
+        expect(Owner.modelClass.uniqueTag().startsWith('owners_Owners_')).to.be(true);
+
+        const Bound = Owner.bindKnex(knex).modelClass;
+        expect(Owner.bindKnex(knex).modelClass).to.be(Bound);
+        expect(Bound.bindKnex(knex)).to.be(Bound);
+      });
     });
   });
 });

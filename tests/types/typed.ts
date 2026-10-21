@@ -1,9 +1,20 @@
 // Type tests for the schema-first `defineModel` / `defineModels` API.
 // Compiled by `pnpm run test:types`. Nothing here is executed.
 
-import type { ModelOptions, QueryContext } from 'objection';
-import type { Insert, Patch, RelationErrors, Result, Row, RowWithGraph } from 'objection-schema';
-import { Model, raw, ref } from 'objection';
+import type { Knex } from 'knex';
+import type { ModelClass, ModelConstructor, ModelOptions, Page, QueryContext, RelationMappings } from 'objection';
+import type {
+  Hooks,
+  Insert,
+  ModelConfig,
+  ModelDefinition,
+  Patch,
+  RelationErrors,
+  Result,
+  Row,
+  RowWithGraph,
+} from 'objection-schema';
+import { Model, QueryBuilder, raw, ref } from 'objection';
 import {
   column,
   defineModel,
@@ -120,11 +131,11 @@ defineModel({
   columns: hookColumns,
   hooks: {
     beforeInsert: (row, ctx) => {
-      expectType<Equal<typeof row, { id: number; name: string }>>();
+      expectType<Equal<typeof row, { id: number; name: string } & Omit<Model, 'id' | 'name'>>>();
       expectType<Equal<typeof ctx, QueryContext>>();
     },
     beforeUpdate: async (row, options, ctx) => {
-      expectType<Equal<typeof row, Partial<{ id: number; name: string }>>>();
+      expectType<Equal<typeof row, Partial<{ id: number; name: string }> & Omit<Model, 'id' | 'name'>>>();
       expectType<Equal<typeof options, ModelOptions>>();
       expectType<Equal<typeof ctx, QueryContext>>();
     },
@@ -795,3 +806,220 @@ conduit.Favorite.query().findById(1);
 conduit.Favorite.query().findById(['ann', 2]);
 
 toQueryBuilder(conduit.Article.query()).select(toQueryBuilder(conduit.Article.relatedQuery('favoritedBy')).count().as('favoritesCount'));
+
+// ----- base: `modelClass` keeps the base's statics and instance members -----
+
+class AppModel extends Model {
+  static deleteType = 'soft';
+  static softDelete() { return 'deleted'; }
+  // Declared by the base too, with the column's type.
+  name!: string;
+  fetchExtra() { return 1; }
+}
+
+const AppPet = defineModel({
+  base: AppModel,
+  table: 'pets',
+  columns: { id: column(z.number()).generated(), code: z.number(), name: z.string() },
+  hooks: {
+    beforeInsert(row) {
+      expectType<Equal<ReturnType<typeof row.fetchExtra>, number>>();
+      expectType<Equal<typeof row.code, number>>();
+      expectType<Equal<typeof row.name, string>>();
+    },
+    beforeUpdate(row) {
+      // Partial on the row fields only (even the base's `name`): the base's members are there.
+      expectType<Equal<ReturnType<typeof row.fetchExtra>, number>>();
+      expectType<Equal<typeof row.name, string | undefined>>();
+    },
+    afterDelete(row) {
+      expectType<Equal<typeof row.code, number | undefined>>();
+      row.$query();
+    },
+  },
+});
+
+type PetInstance = InstanceType<typeof AppPet.modelClass>;
+
+function checkModelClass<
+  X extends { modelClass: { deleteType: string; softDelete: () => string } & ModelClass<PetInstance> },
+>(handle: X) {
+  return handle;
+}
+
+checkModelClass(AppPet);
+
+// Statics: the base's own, and objection's.
+expectType<Equal<typeof AppPet.modelClass.deleteType, string>>();
+
+expectType<Equal<ReturnType<typeof AppPet.modelClass.softDelete>, string>>();
+
+expectType<Equal<typeof AppPet.modelClass.tableName, string>>();
+
+// @ts-expect-error the base has no such static
+AppPet.modelClass.hardDelete();
+
+// Instances: the base's members plus the row.
+const petInstance = new AppPet.modelClass();
+
+expectType<Equal<typeof petInstance, PetInstance>>();
+
+expectType<Equal<typeof petInstance.name, string>>();
+
+expectType<Equal<typeof petInstance.code, number>>();
+
+expectType<Equal<typeof petInstance.id, number>>();
+
+expectType<Equal<ReturnType<typeof petInstance.fetchExtra>, number>>();
+
+expectType<Equal<PetInstance['code'], number>>();
+
+expectType<Equal<PetInstance['name'], string>>();
+
+const petRefetched = run(petInstance.$query());
+
+expectType<Equal<typeof petRefetched, PetInstance>>();
+
+// @ts-expect-error the base has no such instance member
+petInstance.missingMethod();
+
+// objection's own query builder on the class is typed for the same instances.
+const petQueryRows = run(AppPet.modelClass.query());
+
+expectType<Equal<typeof petQueryRows, PetInstance[]>>();
+
+expectType<Equal<(typeof petQueryRows)[number]['code'], number>>();
+
+const petFound = run(AppPet.modelClass.query().findById(1));
+
+expectType<Equal<typeof petFound, PetInstance | undefined>>();
+
+// The same class through a registry, and bound to a knex instance.
+const petDb = defineModels({ AppPet, Movie });
+
+expectType<Equal<typeof petDb.AppPet.modelClass, typeof AppPet.modelClass>>();
+
+expectType<Equal<InstanceType<typeof petDb.AppPet.modelClass>['code'], number>>();
+
+expectType<Equal<typeof petDb.AppPet.modelClass.deleteType, string>>();
+
+declare const petKnex: Knex;
+const boundPet = AppPet.bindKnex(petKnex);
+
+expectType<Equal<typeof boundPet.modelClass, typeof AppPet.modelClass>>();
+
+checkModelClass(boundPet);
+
+checkModelClass(petDb.AppPet);
+
+// A classic model in a registry keeps its own instance type.
+expectType<Equal<InstanceType<typeof petDb.Movie.modelClass>, Movie>>();
+
+// Assignable where objection expects a class.
+class PetReview extends Model {
+  static tableName = 'pet_reviews';
+  static relationMappings = {
+    pet: {
+      relation: Model.BelongsToOneRelation,
+      modelClass: AppPet.modelClass,
+      join: { from: 'pet_reviews.petId', to: 'pets.id' },
+    },
+    registryPet: {
+      relation: Model.BelongsToOneRelation,
+      modelClass: () => petDb.AppPet.modelClass,
+      join: { from: 'pet_reviews.petId', to: 'pets.id' },
+    },
+  } satisfies RelationMappings;
+}
+
+const petClass: ModelClass<Model> = AppPet.modelClass;
+
+// The column wins when the base declares a field with another type.
+class StaleBase extends Model {
+  code!: string;
+  label!: string | null;
+}
+
+const StalePet = defineModel({
+  base: StaleBase,
+  table: 'pets',
+  columns: { id: z.number(), code: z.number(), label: z.string() },
+  hooks: {
+    afterInsert(row) {
+      expectType<Equal<typeof row.code, number>>();
+    },
+  },
+});
+
+const stalePet = new StalePet.modelClass();
+
+expectType<Equal<typeof stalePet.code, number>>();
+
+expectType<Equal<InstanceType<typeof StalePet.modelClass>['code'], number>>();
+
+// A narrower column type fits the base's declaration and is kept.
+expectType<Equal<typeof stalePet.label, string>>();
+
+// A base's custom query builder stays typed, for the generated class's instances.
+class ActiveQueryBuilder<M extends Model, R = M[]> extends QueryBuilder<M, R> {
+  declare ArrayQueryBuilderType: ActiveQueryBuilder<M, M[]>;
+  declare SingleQueryBuilderType: ActiveQueryBuilder<M, M>;
+  declare MaybeSingleQueryBuilderType: ActiveQueryBuilder<M, M | undefined>;
+  declare NumberQueryBuilderType: ActiveQueryBuilder<M, number>;
+  declare PageQueryBuilderType: ActiveQueryBuilder<M, Page<M>>;
+  active() { return this.where('active', true); }
+}
+
+class ActiveBase extends Model {
+  declare QueryBuilderType: ActiveQueryBuilder<this>;
+  static QueryBuilder = ActiveQueryBuilder;
+}
+
+const ActivePet = defineModel({
+  base: ActiveBase,
+  table: 'pets',
+  columns: { id: z.number(), name: z.string() },
+});
+
+const activePets = run(ActivePet.modelClass.query().active());
+
+expectType<Equal<typeof activePets, InstanceType<typeof ActivePet.modelClass>[]>>();
+
+expectType<Equal<(typeof activePets)[number]['name'], string>>();
+
+// Without a base, instances are objection's `Model` plus the row, and so is a hook's `row`.
+type PersonInstance = InstanceType<typeof Person.modelClass>;
+
+expectType<Equal<PersonInstance['firstName'], string>>();
+
+expectType<Equal<keyof typeof Person.modelClass, keyof ModelClass<PersonInstance>>>();
+
+const personRows = run(Person.modelClass.query());
+
+expectType<Equal<(typeof personRows)[number]['firstName'], string>>();
+
+defineModel({
+  table: 'plain',
+  columns: { id: z.number(), name: z.string() },
+  hooks: {
+    beforeInsert(row) {
+      expectType<Equal<typeof row.name, string>>();
+      row.$query();
+    },
+  },
+});
+
+// Users naming the public types without a base still get the defaults.
+type NamedSpec = { table: 'named'; columns: { id: z.ZodNumber }; id: 'id'; modifiers: never };
+
+declare const named: ModelDefinition<NamedSpec>;
+
+expectType<Equal<InstanceType<typeof named.modelClass>['id'], number>>();
+
+type NamedHooks = Parameters<NonNullable<Hooks<{ a: string }>['beforeInsert']>>[0];
+
+expectType<Equal<Flat<NamedHooks>, { a: string }>>();
+
+type NamedConfig = ModelConfig<'named', { id: z.ZodNumber }, 'id', never>;
+
+expectType<Equal<NonNullable<NamedConfig['base']>, ModelConstructor<Model>>>();
