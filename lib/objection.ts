@@ -7,6 +7,7 @@ import * as objection from 'objection';
 export type ModelClass = typeof objection.Model & {
   getTableName: () => string;
   getIdColumn: () => string | string[];
+  uniqueTag: () => string;
 };
 
 interface Undeclared {
