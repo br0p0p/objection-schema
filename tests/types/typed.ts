@@ -382,7 +382,7 @@ async function queries() {
   }
 
   // A classic model in a registry types its fields through definitions, not the
-  // registry (`Row<typeof catalog.ItemOption>` here is a circularity error).
+  // registry (typing `itemOptions` with `Row<typeof catalog.ItemOption>` is a circularity error).
   const ItemOptionDefinition = defineModel({
     table: 'item_options',
     columns: { id: z.number(), itemId: z.number(), label: z.string() },

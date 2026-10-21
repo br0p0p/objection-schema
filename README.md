@@ -181,9 +181,9 @@ When new relations are declared, they replace the inherited `relationMappings`, 
 merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
 hook of the same name (they aren't automatically chained).
 
-Typed through the definition, a classic model's fields get the same `Row`. `RowWithGraph`
-through the definition doesn't know the registry's relations and reports them as unknown
-relations, so use it through `db` wherever that isn't circular. A cast to a hand-written type
+Typed through the definition, a classic model's fields get the same `Row` as through `db`.
+`RowWithGraph` through the definition doesn't know the registry's relations and reports them as
+unknown relations, so use it through `db` wherever that isn't circular. A cast to a hand-written type
 hides the cycle, because the cast's type no longer depends on `db`; it's the definition under
 another name, and removing the cast brings the error back:
 
