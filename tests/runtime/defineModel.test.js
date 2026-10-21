@@ -681,7 +681,9 @@ describe('objection-schema', () => {
           Movie.getRelationNames();
 
           class Base extends Model {}
+
           Base.getRelationNames();
+
           const Kept = defineModel({
             name: 'Kept',
             base: Base,
