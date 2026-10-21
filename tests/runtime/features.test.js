@@ -223,6 +223,37 @@ describe('features', () => {
       expect(Object.keys(Base.modifiers)).to.eql(['unused']);
     });
 
+    it('the class keeps the base\'s statics and members, as typed (tests/types/typed.ts)', async () => {
+      class AppModel extends Model {
+        static deleteType = 'soft';
+        static softDelete() { return 'deleted'; }
+        fetchExtra() { return `extra ${this.name}`; }
+      }
+
+      const seen = [];
+
+      const Owner = defineModel({
+        base: AppModel,
+        table: 'owners',
+        columns: ownerColumns(),
+        hooks: { beforeInsert(row) { seen.push(row.fetchExtra()); } },
+      });
+
+      const db = defineModels({ Owner });
+
+      for (const modelClass of [Owner.modelClass, db.Owner.modelClass, Owner.bindKnex(knex).modelClass]) {
+        expect(modelClass.deleteType).to.be('soft');
+        expect(modelClass.softDelete()).to.be('deleted');
+        expect(modelClass.fromJson({ name: 'A' }).fetchExtra()).to.be('extra A');
+      }
+
+      await Owner.modelClass.query().insert({ name: 'B' });
+      expect(seen).to.eql(['extra B']);
+      const [owner] = await Owner.modelClass.query();
+      expect(owner).to.be.an(AppModel);
+      expect(owner.fetchExtra()).to.be('extra B');
+    });
+
     it('`validate: false` keeps the types but skips runtime validation', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns(), validate: false });
 
