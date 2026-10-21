@@ -380,6 +380,29 @@ async function queries() {
   type PersonWithPets = RowWithGraph<typeof db.Person, 'pets'>;
 
   expectType<Equal<PersonWithPets['pets'], AnimalRow[]>>();
+  // List, nested and modifier forms are accepted, as in `withGraphFetched`.
+  expectType<Equal<
+    RowWithGraph<typeof db.Person, '[pets.owner, children(adults)]'>,
+    Flat<PersonRow & {
+      pets: Flat<AnimalRow & { owner: PersonRow | null }>[];
+      children: PersonRow[];
+    }>
+  >>();
+  // Unknown relations resolve to the error `withGraphFetched` reports, instead of being dropped.
+  expectType<Equal<RowWithGraph<typeof db.Person, 'pest'>, { '~error': 'unknown relation: pest' }>>();
+  expectType<Equal<
+    RowWithGraph<typeof db.Person, 'pets.ownr'>,
+    { '~error': 'unknown relation: pets.ownr' }
+  >>();
+  expectType<Equal<
+    RowWithGraph<typeof db.Person, { pets: true; pest: true }>,
+    { '~error': 'unknown relation: pest' }
+  >>();
+  // A nested object is checked by the constraint already, at the annotation.
+  // @ts-expect-error unknown nested relation (object)
+  type PetsOwnr = RowWithGraph<typeof db.Person, { pets: { ownr: true } }>;
+  // A non-literal expression can't be checked, and gives the plain row.
+  expectType<Equal<RowWithGraph<typeof db.Person, string>, PersonRow>>();
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +491,12 @@ async function relationStyles() {
   });
   // @ts-expect-error not a relation
   zoo.Pet.query().withGraphFetched('ownerr');
+  // RowWithGraph checks names against the handle's own relations: the registry's...
+  expectType<Equal<RowWithGraph<typeof zoo.Pet, 'owner'>['owner'], OwnerRow | null>>();
+  expectType<Equal<RowWithGraph<typeof zoo.Pet, 'ownerr'>, { '~error': 'unknown relation: ownerr' }>>();
+  // ...and none for a standalone definition, so a registry relation is an error there (see #19).
+  expectType<Equal<RowWithGraph<typeof Pet, 'owner'>, { '~error': 'unknown relation: owner' }>>();
+  expectType<Equal<RowWithGraph<typeof Pet, 'nope'>, { '~error': 'unknown relation: nope' }>>();
 }
 
 // ----- Errors: each of these is a compile error on the `defineModels` call -----

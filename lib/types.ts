@@ -1402,11 +1402,16 @@ export type Patch<H extends AnyModelHandle> = EntryOf<
 /** The resolved result of a typed query: `Result<typeof query>` */
 export type Result<Q extends AnyQuery> = Q['~result'];
 
-/** A row together with relations, as returned by `withGraphFetched(expression)`. */
+/**
+ * A row together with relations, as returned by `withGraphFetched(expression)`. An expression
+ * `withGraphFetched` rejects resolves to its error, `{ '~error': 'unknown relation: …' }`.
+ */
 export type RowWithGraph<
   H extends AnyModelHandle,
   X extends RelationExpressionInput<HandleInfo<H>['r'], HandleInfo<H>['k']>,
-> = Simplify<
-  RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
-  & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
->;
+> = CheckExpression<HandleInfo<H>['r'], HandleInfo<H>['k'], X> extends { '~error': infer E }
+  ? { '~error': E }
+  : Simplify<
+    RowOf<HandleInfo<H>['r'], HandleInfo<H>['k']>
+    & GraphResult<HandleInfo<H>['r'], HandleInfo<H>['k'], ToExpressionObject<X>>
+  >;

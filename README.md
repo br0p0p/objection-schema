@@ -208,6 +208,9 @@ Each column is validated with its own schema on `insert`, `insertGraph`, `upsert
 ## Type safety and editor support
 
 - `Row`, `Insert`, `Patch` and `Result` helper types: `Row<typeof db.Person>`.
+  `RowWithGraph<typeof db.Person, 'pets.owner'>` is a row with relations, as `withGraphFetched`
+  returns it. It checks the expression the same way: an unknown relation resolves to
+  `{ '~error': 'unknown relation: …' }` instead of a row.
 - `select` narrows (with `'col as alias'`), and `where` / `whereIn` / `orderBy` check column names
   and value types.
 - `findById` takes the id's type, including tuples for composite ids. `first()` / `findById()`
