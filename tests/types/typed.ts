@@ -398,9 +398,11 @@ async function queries() {
     RowWithGraph<typeof db.Person, { pets: true; pest: true }>,
     { '~error': 'unknown relation: pest' }
   >>();
+
   // A nested object is checked by the constraint already, at the annotation.
   // @ts-expect-error unknown nested relation (object)
   type PetsOwnr = RowWithGraph<typeof db.Person, { pets: { ownr: true } }>;
+
   // A non-literal expression can't be checked, and gives the plain row.
   expectType<Equal<RowWithGraph<typeof db.Person, string>, PersonRow>>();
 }
