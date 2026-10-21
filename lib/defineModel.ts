@@ -8,7 +8,7 @@ import type {
 } from 'objection';
 import type { ColumnMeta } from './column';
 import type { ModelClass } from './objection';
-import type { AnyModelHandle, Columns, ModelConfig, ModelDefinition, StrKeys } from './types';
+import type { AnyModelHandle, Columns, Hooks, ModelConfig, ModelDefinition, StrKeys } from './types';
 import { normalizeColumns } from './column';
 import { isModelClass, Model } from './objection';
 import { StandardSchemaValidator } from './StandardSchemaValidator';
@@ -16,11 +16,14 @@ import { StandardSchemaValidator } from './StandardSchemaValidator';
 type ModelInstance = InstanceType<ModelClass>;
 
 /** A hook from the config: the row, then the arguments objection passes to `$hook`. */
-type Hook = (row: ModelInstance, ...args: any[]) => void | Promise<void>;
+type Hook = (row: ModelInstance, ...args: any[]) => unknown;
+
+/** The `$hook` method objection calls on model instances. */
+type HookMethod = (this: ModelInstance, ...args: any[]) => unknown;
 
 /** Wraps a hook into the `$hook` method objection calls on model instances. */
 interface HookFactories {
-  readonly [hookName: string]: (fn: Hook) => (this: ModelInstance, ...args: any[]) => void | Promise<void>;
+  readonly [hookName: string]: (fn: Hook) => HookMethod;
 }
 
 const HOOKS: HookFactories = {
@@ -54,6 +57,28 @@ const HOOKS: HookFactories = {
     },
 };
 
+/**
+ * Runs the parent class's `$hook` first, then `fn`, the way `super.$hook(...)` would. The parent
+ * is looked up at call time from the generated class (not from `this`, which may be a `bindKnex`
+ * subclass whose parent is the generated class itself), so later patches to the base apply.
+ * A thenable result is waited for; otherwise `fn` runs synchronously.
+ */
+function chainHook(fn: Hook, method: string, modelClass: ModelClass): Hook {
+  return (row, ...args) => {
+    // SAFETY: the parent is an objection Model prototype (checked by `isModelClass(base)`),
+    // which has every `$hook` method.
+    const parent = Object.getPrototypeOf(modelClass.prototype)[method] as HookMethod;
+    const result = parent.apply(row, args);
+
+    return isThenable(result) ? result.then(() => fn(row, ...args)) : fn(row, ...args);
+  };
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  // SAFETY: `then` is only read to tell a promise from a plain result.
+  return typeof (value as Partial<PromiseLike<unknown>> | null | undefined)?.then === 'function';
+}
+
 /** The configuration as `defineModel` reads it at runtime (`ModelConfig` is the typed one). */
 interface RuntimeConfig {
   name?: string;
@@ -62,6 +87,7 @@ interface RuntimeConfig {
   id?: string | readonly string[];
   modifiers?: object | null;
   hooks?: object;
+  replaceHooks?: readonly string[];
   base?: unknown;
   validate?: boolean;
 }
@@ -94,8 +120,9 @@ export function defineModel<
   C extends Columns,
   const Id extends StrKeys<C> | readonly StrKeys<C>[] = 'id' & StrKeys<C>,
   M extends string = never,
+  H extends keyof Hooks<unknown> = never,
 >(
-  config: ModelConfig<T, C, Id, M>,
+  config: ModelConfig<T, C, Id, M, H>,
 ): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M }>;
 export function defineModel(config: RuntimeConfig): object {
   const {
@@ -105,6 +132,7 @@ export function defineModel(config: RuntimeConfig): object {
     id = 'id',
     modifiers = null,
     hooks = {},
+    replaceHooks = [],
     // objection's `Model`, so that a global `Model.knex(knex)` binding is
     // inherited, like with classic models.
     base = Model,
@@ -149,12 +177,29 @@ export function defineModel(config: RuntimeConfig): object {
   // SAFETY: the values are hook functions; names that aren't hooks throw below.
   const hookFns = hooks as Record<string, Hook>;
 
+  for (const hookName of replaceHooks) {
+    if (!Object.hasOwn(HOOKS, hookName)) {
+      throw new Error(`defineModel(${className}): unknown hook "${hookName}" in \`replaceHooks\``);
+    }
+
+    if (!Object.hasOwn(hookFns, hookName)) {
+      throw new Error(
+        `defineModel(${className}): hook "${hookName}" in \`replaceHooks\` is not in \`hooks\``,
+      );
+    }
+  }
+
   for (const hookName of Object.keys(hookFns)) {
     if (!Object.hasOwn(HOOKS, hookName)) {
       throw new Error(`defineModel(${className}): unknown hook "${hookName}"`);
     }
 
-    Object.assign(modelClass.prototype, { [`$${hookName}`]: HOOKS[hookName](hookFns[hookName]) });
+    const method = `$${hookName}`;
+    const fn = replaceHooks.includes(hookName)
+      ? hookFns[hookName]
+      : chainHook(hookFns[hookName], method, modelClass);
+
+    Object.assign(modelClass.prototype, { [method]: HOOKS[hookName](fn) });
   }
 
   const def = createModelHandle(modelClass, {

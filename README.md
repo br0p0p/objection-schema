@@ -177,8 +177,27 @@ Keep existing hooks and serializers with `defineModel({ base: ExistingModel, tab
 The generated subclass shadows getter-only statics without changing the original class.
 Declare JSON columns explicitly, including attributes absent from the old `jsonSchema`.
 When new relations are declared, they replace the inherited `relationMappings`, rather than
-merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
-hook of the same name (they aren't automatically chained).
+merging with it.
+
+Hooks the config omits stay inherited. A configured hook runs after the base's hook of the same
+name, the way `super.$beforeInsert(ctx)` would in a subclass, for all seven hooks (`after*` ones
+too). The base gets the same arguments; if it returns a promise, the configured hook runs once it
+resolves, and not at all if it rejects. To replace a base hook instead, list it in
+`replaceHooks`; listed names must be configured hooks. To drop one entirely, configure a no-op:
+
+```ts
+defineModel({
+  base: ExistingModel,
+  table,
+  columns,
+  hooks: { beforeInsert: setSlug, afterInsert: () => {} },
+  replaceHooks: ['afterInsert'], // beforeInsert still runs ExistingModel's first
+});
+```
+
+> **Upgrading from 0.1:** configured hooks used to replace the base's hook. If a hook calls
+> the base by hand (`await Base.prototype.$beforeInsert.call(row, ctx)`), remove that call, or the
+> base hook runs twice. To keep a hook's old behaviour, list it in `replaceHooks`.
 
 [Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
 sources, executable migration slices, adaptations and bugs found. These are incremental

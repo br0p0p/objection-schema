@@ -951,11 +951,15 @@ type ModifierQuery<C extends Columns, Id extends IdSpec, T extends string> = Que
   InitialState<SelfRegistry<{ table: T; columns: C; id: Id; modifiers: string }>, '~self'>
 >;
 
+/** `NoInfer` for TypeScript < 5.4: the type isn't an inference site for `T`. */
+type NoInferFrom<T> = [T][T extends any ? 0 : never];
+
 export interface ModelConfig<
   T extends string,
   C extends Columns,
   Id extends IdSpec,
   M extends string,
+  H extends keyof Hooks<unknown> = keyof Hooks<unknown>,
 > {
   /** Name of the generated class (shows up in errors and stack traces). */
   name?: string;
@@ -964,7 +968,10 @@ export interface ModelConfig<
   /** Id column(s). Defaults to `'id'`. */
   id?: Id;
   modifiers?: Record<M, (query: ModifierQuery<C, Id, T>, ...args: any[]) => void>;
-  hooks?: Hooks<RowOfColumns<C>>;
+  /** Each configured hook runs after the base's hook of the same name, like `super.$hook()`. */
+  hooks?: Pick<Hooks<RowOfColumns<C>>, H>;
+  /** Configured hooks that replace the base's hook of the same name instead of running after it. */
+  replaceHooks?: readonly NoInferFrom<H>[];
   /** Base model class, e.g. one with plugins mixed in. Defaults to `Model`. */
   base?: ModelConstructor<Model>;
   /** Set to `false` to skip runtime validation (types only). */

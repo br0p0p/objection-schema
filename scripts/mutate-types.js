@@ -132,6 +132,24 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
+  [
+    D,
+    `  replaceHooks?: readonly NoInferFrom<H>[];`,
+    `  replaceHooks?: readonly (keyof Hooks<unknown>)[];`,
+    'replaceHooks accepts hooks that are not configured',
+  ],
+  [
+    D,
+    `  replaceHooks?: readonly NoInferFrom<H>[];`,
+    `  replaceHooks?: readonly H[];`,
+    'replaceHooks widens the configured hooks',
+  ],
+  [
+    D,
+    `  hooks?: Pick<Hooks<RowOfColumns<C>>, H>;`,
+    `  hooks?: Pick<Hooks<RowOfColumns<C>>, keyof Hooks<unknown>>;`,
+    'configured hook names are not inferred',
+  ],
   ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
 ];
 
