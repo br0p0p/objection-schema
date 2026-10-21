@@ -6,11 +6,12 @@ import type {
   ReferenceBuilder,
   TransactionOrKnex,
 } from 'objection';
-import type { ColumnMeta } from './column';
+import type { ColumnMeta, NormalizedColumn, RuntimeCodec } from './column';
 import type { ModelClass } from './objection';
 import type {
   AnyModelHandle,
   BaseClass,
+  CheckIdCodecs,
   Columns,
   DefaultBase,
   ModelConfig,
@@ -18,7 +19,7 @@ import type {
   StrKeys,
 } from './types';
 import { normalizeColumns } from './column';
-import { isModelClass, Model } from './objection';
+import { isModelClass, isQueryValue, Model } from './objection';
 import { StandardSchemaValidator } from './StandardSchemaValidator';
 
 type ModelInstance = InstanceType<ModelClass>;
@@ -107,7 +108,7 @@ export function defineModel<
   M extends string = never,
   B extends BaseClass = DefaultBase,
 >(
-  config: ModelConfig<T, C, Id, M, B>,
+  config: ModelConfig<T, C, Id, M, B> & CheckIdCodecs<C, Id>,
 ): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M; base: B }>;
 export function defineModel(config: RuntimeConfig): object {
   const {
@@ -139,6 +140,12 @@ export function defineModel(config: RuntimeConfig): object {
     if (!colProps.has(idProp)) {
       throw new Error(`defineModel(${className}): id column "${idProp}" is not in \`columns\``);
     }
+
+    if (cols.some(it => it.prop === idProp && it.codec)) {
+      throw new Error(
+        `defineModel(${className}): id column "${idProp}" can't have a codec, relation queries and findById use its values as they are`,
+      );
+    }
   }
 
   const tableName = table;
@@ -167,6 +174,13 @@ export function defineModel(config: RuntimeConfig): object {
     }
   } }[className];
 
+  const codecCols = cols.filter(hasCodec);
+
+  // Without codecs, the model keeps objection's (or the base's) methods as they are.
+  if (codecCols.length > 0) {
+    Object.assign(modelClass.prototype, codecMethods(base, codecCols));
+  }
+
   // SAFETY: the values are hook functions; names that aren't hooks throw below.
   const hookFns = hooks as Record<string, Hook>;
 
@@ -186,6 +200,47 @@ export function defineModel(config: RuntimeConfig): object {
   });
 
   return def;
+}
+
+type CodecColumn = NormalizedColumn & { readonly codec: RuntimeCodec };
+
+function hasCodec(col: NormalizedColumn): col is CodecColumn {
+  return !!col.codec;
+}
+
+// Decoding runs after the base's `$parseDatabaseJson` (column name mappers, `.json()` parsing, a
+// base's own conversions) and encoding before its `$formatDatabaseJson`, so the codecs see
+// property names and JSON values. `null` / `undefined` are left alone: objection probes these
+// methods with `null`s to map column names, and patches leave out columns. So are query values
+// (`raw()` etc. set in hooks), like objection does for JSON columns.
+function codecMethods(base: ModelClass, codecCols: readonly CodecColumn[]) {
+  return {
+    $parseDatabaseJson(this: ModelInstance, json: Pojo): Pojo {
+      const parsed = base.prototype.$parseDatabaseJson.call(this, json);
+
+      for (const { prop, codec } of codecCols) {
+        const value: unknown = parsed[prop];
+
+        if (value != null) {
+          parsed[prop] = codec.fromDatabase(value);
+        }
+      }
+
+      return parsed;
+    },
+
+    $formatDatabaseJson(this: ModelInstance, json: Pojo): Pojo {
+      for (const { prop, codec } of codecCols) {
+        const value: unknown = json[prop];
+
+        if (value != null && !isQueryValue(value)) {
+          json[prop] = codec.toDatabase(value);
+        }
+      }
+
+      return base.prototype.$formatDatabaseJson.call(this, json);
+    },
+  };
 }
 
 function createModelHandle(modelClass: ModelClass, meta: HandleMeta): RuntimeHandle {

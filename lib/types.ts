@@ -143,45 +143,98 @@ type ReferenceOf<T extends string, C extends string, O extends ReferenceOptions>
   inverseKind: O extends { inverse: { kind: 'one' } } ? 'one' : 'many';
 };
 
+/**
+ * How a column's values are read from and written to the database: `column(schema).codec(...)`.
+ * `Out` is the schema's output (the row type), `Db` what the database driver returns and takes.
+ * Neither function gets `null` or `undefined`, which are passed through as they are. On a
+ * `.json()` column, `Db` is the JSON value: `toDatabase` runs before `JSON.stringify`, and
+ * `fromDatabase` after `JSON.parse`.
+ */
+export interface ColumnCodec<Out, Db> {
+  /** Converts a value read from the database (`$parseDatabaseJson`). Reads aren't validated. */
+  readonly fromDatabase: (value: Db) => Out;
+  /**
+   * Converts a value written to the database (`$formatDatabaseJson`): the schema's output, or the
+   * value as given when validation is skipped (`validate: false`, `skipValidation`, `unchecked()`).
+   */
+  readonly toDatabase: (value: Out) => Db;
+}
+
+/** A misuse, reported as a type error that contains the message. */
+interface ColumnError<Message extends string> {
+  '~error': Message;
+}
+
 export interface Column<
   S extends StandardSchemaV1 = StandardSchemaV1,
   F extends ColumnFlags = DefaultFlags,
   R extends ColumnReference | null = null,
   /** Allowed `references()` targets: the names from `defineModelNames`, or any string. */
   Names extends string = string,
+  /** The column's codec, from `.codec(...)`. */
+  X extends ColumnCodec<any, any> | null = null,
 > {
-  readonly '~column': F & { references: R };
+  readonly '~column': F & { references: R; codec: X };
   readonly schema: S;
   /** The database generates the value (serial / identity / uuid default). Optional on insert. */
-  generated(): Column<S, SetFlag<F, 'generated'>, R, Names>;
+  generated(): Column<S, SetFlag<F, 'generated'>, R, Names, X>;
   /** The database has a default for the column. Optional on insert. */
-  hasDefault(): Column<S, SetFlag<F, 'hasDefault'>, R, Names>;
+  hasDefault(): Column<S, SetFlag<F, 'hasDefault'>, R, Names, X>;
   /** The column is stored as JSON. */
-  json(): Column<S, SetFlag<F, 'json'>, R, Names>;
+  json(): Column<S, SetFlag<F, 'json'>, R, Names, X>;
   /**
    * A foreign key to `target.column`, where `target` is a key in the `defineModels` registry.
    * With a `column` from `defineModelNames(...)`, `target` must be one of the declared names.
    * Creates a `belongsToOne` relation, plus an inverse one on the target when `inverse` is given.
+   * A column with a codec can't be one.
    */
   references<const T extends Names, const C extends string, const O extends ReferenceOptions = {}>(
-    target: T,
+    target: X extends null
+      ? T
+      : ColumnError<'references(): a column with a codec can\'t be a foreign key, relation queries use its values as they are'>,
     column: C,
     options?: O,
-  ): Column<S, F, ReferenceOf<T, C, O>, Names>;
+  ): Column<S, F, ReferenceOf<T, C, O>, Names, X>;
+  /**
+   * Converts the column's values read from the database (`fromDatabase`) and written to it
+   * (`toDatabase`), so the row type (the schema's output) holds for reads too. Reads are
+   * converted, not validated. Query values (`where`, ...) don't go through the codec, so they're
+   * typed as database values. Id and `references()` columns can't have one.
+   */
+  codec<Db>(
+    codec: R extends null
+      ? ColumnCodec<NonNullable<StandardSchemaV1.InferOutput<S>>, Db>
+      : ColumnError<'column.codec(): a references() column can\'t have a codec, relation queries use its values as they are'>,
+  ): Column<S, F, R, Names, ColumnCodec<NonNullable<StandardSchemaV1.InferOutput<S>>, Db>>;
 }
 
-export type ColumnInput = StandardSchemaV1 | Column<any, any, any, any>;
+export type ColumnInput = StandardSchemaV1 | Column<any, any, any, any, any>;
 
 export type Columns = Record<string, ColumnInput>;
 
 type SchemaOf<C>
-  = C extends Column<infer S, any, any, any> ? S : C extends StandardSchemaV1 ? C : never;
+  = C extends Column<infer S, any, any, any, any> ? S : C extends StandardSchemaV1 ? C : never;
 
-type FlagsOf<C> = C extends Column<any, infer F, any, any> ? F : DefaultFlags;
+type FlagsOf<C> = C extends Column<any, infer F, any, any, any> ? F : DefaultFlags;
 
-type ReferenceOfColumn<C> = C extends Column<any, any, infer R, any> ? R : null;
+type ReferenceOfColumn<C> = C extends Column<any, any, infer R, any, any> ? R : null;
+
+type CodecOfColumn<C> = C extends Column<any, any, any, any, infer X> ? X : null;
+
+/** Keys of the columns that have a codec. */
+type CodecKeys<C extends Columns> = {
+  [K in keyof C]: CodecOfColumn<C[K]> extends null ? never : K;
+}[keyof C];
 
 type ColOut<C> = StandardSchemaV1.InferOutput<SchemaOf<C>>;
+
+/**
+ * A column's value in queries (`where`, joined columns), which don't go through the codec: the
+ * codec's database type (and the row type's `null` / `undefined`), or the row type.
+ */
+type ColDb<C> = CodecOfColumn<C> extends ColumnCodec<any, infer Db>
+  ? Db | Extract<ColOut<C>, null | undefined>
+  : ColOut<C>;
 
 type ColIn<C> = StandardSchemaV1.InferInput<SchemaOf<C>>;
 
@@ -205,6 +258,8 @@ type SchemaDefaultKeys<C extends Columns> = {
 }[keyof C];
 
 type RowOfColumns<C extends Columns> = Simplify<{ -readonly [K in keyof C]: ColOut<C[K]> }>;
+
+type DbOfColumns<C extends Columns> = Simplify<{ -readonly [K in keyof C]: ColDb<C[K]> }>;
 
 type InsertOfColumns<C extends Columns> = Simplify<
   { [K in Exclude<keyof C, OptionalInsertKeys<C>>]: ColIn<C[K]> | ValueExpression } & {
@@ -248,6 +303,10 @@ interface ClassicRef<M> {
 
 interface Entry {
   row: object;
+  /** The row's values in queries: the database types of codec columns. */
+  db: object;
+  /** Properties with a codec, which decodes whatever is read under their name. */
+  codecs: string;
   insert: object;
   insertResult: object;
   patch: object;
@@ -263,6 +322,8 @@ type Registry = Record<string, Entry>;
 
 interface SpecEntry<Sp extends ModelSpec, Rels extends Record<string, RelationDescriptor>> {
   row: RowOfColumns<Sp['columns']>;
+  db: DbOfColumns<Sp['columns']>;
+  codecs: CodecKeys<Sp['columns']> & string;
   insert: InsertOfColumns<Sp['columns']>;
   insertResult: InsertResultOfColumns<Sp['columns'], Sp['id']>;
   patch: PatchOfColumns<Sp['columns']>;
@@ -281,6 +342,8 @@ type ClassicElement<T> = NonNullable<T> extends readonly (infer E)[] ? E : NonNu
 
 interface ClassicEntry<M extends Model> {
   row: Omit<ModelObject<M>, ClassicRelationKeys<M>>;
+  db: Omit<ModelObject<M>, ClassicRelationKeys<M>>;
+  codecs: never;
   insert: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
   insertResult: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
   patch: Partial<Omit<ModelObject<M>, ClassicRelationKeys<M>>>;
@@ -305,6 +368,8 @@ type EntryOf<R extends Registry, K> = K extends string
     : never;
 
 type RowOf<R extends Registry, K> = EntryOf<R, K>['row'];
+
+type DbOf<R extends Registry, K> = EntryOf<R, K>['db'];
 
 type RelationsOf<R extends Registry, K> = EntryOf<R, K>['relations'];
 
@@ -466,15 +531,18 @@ type PathTarget<R extends Registry, K, P extends string> = P extends `${infer H}
   ? PathTarget<R, TargetOf<R, K, H>, T>
   : TargetOf<R, K, P>;
 
-/** Columns made available by joins: `pets.name`, `pets:owner.firstName`, ... */
+/**
+ * Columns made available by joins: `pets.name`, `pets:owner.firstName`, ... The joined model's
+ * codecs don't run on them, so they have the database types.
+ */
 type JoinedColumns<R extends Registry, K, E, Alias extends string = ''> = UnionToIntersection<
   {
     [P in StrKeys<E> & StrKeys<RelationsOf<R, K>>]:
       | {
-        [C in ColumnKeys<R, TargetOf<R, K, P>> as `${Alias}${P}.${C}`]: RowOf<
+        [C in ColumnKeys<R, TargetOf<R, K, P>> as `${Alias}${P}.${C}`]: DbOf<
           R,
           TargetOf<R, K, P>
-        >[C];
+        >[C & keyof DbOf<R, TargetOf<R, K, P>>];
       }
       | (E[P] extends true ? never : JoinedColumns<R, TargetOf<R, K, P>, E[P], `${Alias}${P}:`>);
   }[StrKeys<E> & StrKeys<RelationsOf<R, K>>]
@@ -541,7 +609,16 @@ type E_<S extends QueryState> = EntryOf<R_<S>, K_<S>>;
 /** Any column reference the query understands: `age`, `persons.age`, `pets.name`. */
 export type ColumnRef<S extends QueryState> = S['refs'];
 
+/** A column's value in queries (`where`, ...): codec columns take their database type. */
 type ColumnValue<S extends QueryState, P>
+  = P extends StrKeys<S['joined']>
+    ? S['joined'][P]
+    : P extends `${E_<S>['table']}.${infer C}`
+      ? DbOf<R_<S>, K_<S>>[C & keyof DbOf<R_<S>, K_<S>>]
+      : DbOf<R_<S>, K_<S>>[P & keyof DbOf<R_<S>, K_<S>>];
+
+/** A selected column's value: the row type, as the codecs decode the model's own columns. */
+type SelectedValue<S extends QueryState, P>
   = P extends StrKeys<S['joined']>
     ? S['joined'][P]
     : P extends `${E_<S>['table']}.${infer C}`
@@ -551,10 +628,25 @@ type ColumnValue<S extends QueryState, P>
 /** Output property name of a column reference: `pets.name` -> `name` */
 type OutputName<P extends string> = P extends `${string}.${infer C}` ? C : P;
 
+/**
+ * The model's codecs decode by the result's property name, not by the source column: whatever is
+ * read under a codec column's name is decoded (`select('note as total')`, a joined `pets.total`),
+ * and a column selected under another name isn't.
+ */
+type OutputValue<S extends QueryState, A, Value> = A extends E_<S>['codecs']
+  ? RowOf<R_<S>, K_<S>>[A & keyof RowOf<R_<S>, K_<S>>]
+  : Value;
+
 type Selection<S extends QueryState, P> = P extends `${infer Ref} as ${infer Alias}`
-  ? { [A in Trim<Alias>]: ColumnValue<S, Trim<Ref>> }
+  ? {
+      [A in Trim<Alias>]: OutputValue<
+        S,
+        A,
+        A extends OutputName<Trim<Ref>> ? SelectedValue<S, Trim<Ref>> : ColumnValue<S, Trim<Ref>>
+      >;
+    }
   : P extends string
-    ? { [A in OutputName<P>]: ColumnValue<S, P> }
+    ? { [A in OutputName<P>]: OutputValue<S, A, SelectedValue<S, P>> }
     : never;
 
 export type SelectArg<S extends QueryState> = S['refs'] | `${S['refs']} as ${string}`;
@@ -1034,6 +1126,12 @@ export interface ModelConfig<
   /** Set to `false` to skip runtime validation (types only). */
   validate?: boolean;
 }
+
+/** `defineModel`'s check that no id column has a codec, as an error that names the column. */
+export type CheckIdCodecs<C extends Columns, Id extends IdSpec>
+  = IsNever<IdKeys<Id> & CodecKeys<C>> extends true
+    ? unknown
+    : ColumnError<`defineModel: id column "${IdKeys<Id> & CodecKeys<C> & string}" can't have a codec, relation queries and findById use its values as they are`>;
 
 // ---------------------------------------------------------------------------
 // Relations

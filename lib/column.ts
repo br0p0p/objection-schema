@@ -1,5 +1,5 @@
 import type { ValidatedColumn } from './StandardSchemaValidator';
-import type { Column, DefaultFlags, ReferenceOptions, StandardSchemaV1 } from './types';
+import type { Column, ColumnCodec, DefaultFlags, ReferenceOptions, StandardSchemaV1 } from './types';
 import { isStandardSchema, validateSync } from './standardSchema';
 
 /** The metadata of a `column()` at runtime. */
@@ -8,7 +8,11 @@ export interface ColumnMeta {
   readonly hasDefault: boolean;
   readonly json: boolean;
   readonly references: Reference | null;
+  readonly codec: RuntimeCodec | null;
 }
+
+/** A `.codec()` at runtime: converts non-null values read from / written to the database. */
+export type RuntimeCodec = ColumnCodec<unknown, unknown>;
 
 /** A `references()` foreign key at runtime. */
 export interface Reference {
@@ -27,19 +31,26 @@ export interface RuntimeColumn {
   hasDefault: () => RuntimeColumn;
   json: () => RuntimeColumn;
   references: (target: string, column: string, options?: ReferenceOptions) => RuntimeColumn;
+  codec: (codec: RuntimeCodec) => RuntimeColumn;
 }
 
 export interface NormalizedColumn extends ValidatedColumn {
   readonly json: boolean;
+  readonly codec: RuntimeCodec | null;
 }
 
-// Stryker disable next-line ObjectLiteral: every flag is read for truthiness, so `{}` behaves the same.
+// Stryker disable next-line ObjectLiteral: every flag (and the codec) is read for truthiness, so `{}` behaves the same.
 const DEFAULT_META: ColumnMeta = Object.freeze({
   generated: false,
   hasDefault: false,
   json: false,
   references: null,
+  codec: null,
 });
+
+// Relation queries put key values into the SQL as they are (decoded, read from the models), and
+// a generated id is set without `$parseDatabaseJson`, so key columns can't have codecs.
+const KEY_VALUES = 'relation queries use its values as they are';
 
 // `column(schema)` wraps a Standard Schema with database related metadata. Each
 // modifier returns a new immutable column so that columns can be shared and reused.
@@ -75,6 +86,10 @@ function createColumn(
     // A foreign key. `defineModels` derives a `belongsToOne` relation from it, and
     // an inverse relation on the target model when `inverse` is given.
     references: (target: string, targetColumn: string, options: ReferenceOptions = {}) => {
+      if (meta.codec) {
+        throw new Error(`references(): a column with a codec can't be a foreign key, ${KEY_VALUES}`);
+      }
+
       if (modelNames && !modelNames.includes(target)) {
         throw new Error(
           `references(): unknown model "${target}". Expected one of: ${modelNames.join(', ')}`,
@@ -83,7 +98,24 @@ function createColumn(
 
       return with_({ references: createReference(target, targetColumn, options) });
     },
+    // How values are read from and written to the database (`$parseDatabaseJson` /
+    // `$formatDatabaseJson`). Reads are converted, not validated.
+    codec: (codec: RuntimeCodec) => {
+      if (meta.references) {
+        throw new Error(`column.codec(): a references() column can't have a codec, ${KEY_VALUES}`);
+      }
+
+      return with_({ codec: createCodec(codec) });
+    },
   });
+}
+
+function createCodec(codec: Partial<RuntimeCodec> | undefined): RuntimeCodec {
+  if (!codec || typeof codec.fromDatabase !== 'function' || typeof codec.toDatabase !== 'function') {
+    throw new Error('column.codec(): fromDatabase and toDatabase must be functions');
+  }
+
+  return Object.freeze({ fromDatabase: codec.fromDatabase, toDatabase: codec.toDatabase });
 }
 
 function createReference(
@@ -180,6 +212,7 @@ export function normalizeColumns(columns: unknown): NormalizedColumn[] {
       generated: meta.generated,
       hasDefault: meta.hasDefault,
       json: meta.json,
+      codec: meta.codec,
       undefinedMode: probeUndefined(schema, prop),
     });
   });

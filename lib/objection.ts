@@ -39,6 +39,27 @@ export function isModelClass(value: unknown): value is ModelClass {
 }
 
 /**
+ * Whether a value written to the database is a query value: `raw()`, `ref()`, `fn()`, `val()`, a
+ * knex raw or query builder, or an objection query builder, which objection turns into SQL. It's
+ * objection's `isQueryProp` (lib/model/modelQueryProps.js), which isn't exported. Only for
+ * non-null values.
+ */
+export function isQueryValue(value: {}): boolean {
+  // SAFETY: only read. Each kind of query value has one of these, and app values don't.
+  const candidate = value as {
+    toKnexRaw?: unknown;
+    toSQL?: unknown;
+    isObjectionQueryBuilderBase?: unknown;
+  };
+
+  return (
+    typeof candidate.toKnexRaw === 'function'
+    || typeof candidate.toSQL === 'function'
+    || candidate.isObjectionQueryBuilderBase === true
+  );
+}
+
+/**
  * Whether objection has read (and cached) this class's own relations. objection's `cachedGet`
  * (lib/model/Model.js) stores `getRelationMappings()` as an own `$$relationMappings` the first time
  * it's called, and every relation lookup goes through it (`getRelationNames()` included), so a

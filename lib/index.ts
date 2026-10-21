@@ -21,6 +21,7 @@ export type {
   AnyModelHandle,
   AnyQuery,
   Column,
+  ColumnCodec,
   ColumnFlags,
   ColumnInput,
   ColumnRef,
