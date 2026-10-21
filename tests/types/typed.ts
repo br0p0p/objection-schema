@@ -769,6 +769,7 @@ expectType<
 >();
 
 loose.Owner.query().where('name', 'x').where('data', 1).where('nickname', 'n');
+
 // @ts-expect-error undeclared column on a classic model with an index signature
 loose.Owner.query().where('nmae', 'x');
 
@@ -807,6 +808,8 @@ class AnyData extends Model {
 const anyDb = defineModels({ AnyData, Movie });
 
 expectType<Equal<Row<typeof anyDb.AnyData>, { id: number; data: any }>>();
+
 expectType<Equal<Row<typeof anyDb.Movie>, { id: number; title: string }>>();
+
 // @ts-expect-error a field typed `any` is a column, not a relation
 anyDb.AnyData.query().withGraphFetched('data');
