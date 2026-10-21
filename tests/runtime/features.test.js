@@ -17,6 +17,7 @@ const {
   toQueryBuilder,
   isModelDefinition,
 } = require('objection-schema');
+
 const ts = require('typescript');
 const v = require('valibot');
 const { z } = require('zod');
@@ -33,6 +34,7 @@ function staticsOfTypings() {
 
   return new Map(checker.getPropertiesOfType(type).map((symbol) => {
     const propType = checker.getNonNullableType(checker.getTypeOfSymbol(symbol));
+
     return [symbol.name, propType.flags & ts.TypeFlags.Never ? 'rejected' : 'known'];
   }));
 }
@@ -275,6 +277,7 @@ describe('features', () => {
       class Base extends Model {
         get label() { return `pet ${this.name}`; }
       }
+
       class ActiveQueryBuilder extends Model.QueryBuilder {
         named() { return this.where('name', 'A'); }
       }
@@ -308,6 +311,7 @@ describe('features', () => {
         columns: ownerColumns(),
         statics: { deleteType: 'soft', useLimitInFirst: true, softDeleteKey: 'deletedAt' },
       });
+
       const db = defineModels({ Owner });
 
       expect(Object.getOwnPropertyDescriptor(Owner.modelClass, 'deleteType')).to.eql({
@@ -316,11 +320,13 @@ describe('features', () => {
         writable: true,
         value: 'soft',
       });
+
       for (const modelClass of [Owner.modelClass, db.Owner.modelClass, Owner.bindKnex(knex).modelClass]) {
         expect(modelClass.deleteType).to.be('soft');
         expect(modelClass.softDeleteKey).to.be('deletedAt');
         expect(modelClass.useLimitInFirst).to.be(true);
       }
+
       expect(Base.deleteType).to.be('hard');
       expect(Base.useLimitInFirst).to.be(false);
       expect(Object.hasOwn(Base, 'softDeleteKey')).to.be(false);
@@ -328,18 +334,21 @@ describe('features', () => {
       const objectWithoutPrototype = Object.assign(Object.create(null), { deleteType: 'soft' });
       const Plain = defineModel({ table: 'owners', columns: ownerColumns(), statics: objectWithoutPrototype });
       expect(Plain.modelClass.deleteType).to.be('soft');
+
       // Keys of `Object.prototype` aren't objection's (and a type can't reject them).
       const WithToString = defineModel({
         table: 'owners',
         columns: ownerColumns(),
         statics: { toString: () => 'Owner!' },
       });
+
       expect(String(WithToString.modelClass)).to.be('Owner!');
     });
 
     it('`statics` rejects the keys it doesn\'t own, naming the option that owns them', () => {
       const define = statics => () =>
         defineModel({ name: 'Pets', table: 'pets', columns: ownerColumns(), statics });
+
       const rejects = (statics, message) => expect(define(statics)).to.throwError(err =>
         expect(err.message).to.be(message),
       );
@@ -365,15 +374,18 @@ describe('features', () => {
       );
       rejects({ prototype: {} }, 'defineModel(Pets): `statics.prototype` can\'t be set');
       rejects({ name: 'Cats' }, 'defineModel(Pets): `statics.name` is set by `name`');
+
       for (const key of ['query', 'knex', 'bindKnex', 'fromJson', 'beforeInsert', 'getTableName', 'length', 'bind']) {
         rejects(
           { deleteType: 'soft', [key]: null },
           `defineModel(Pets): \`statics.${key}\` would replace objection's \`Model.${key}\`; set it on a \`base\` class`,
         );
       }
+
       for (const statics of [null, 1, 'x', [], () => {}, new Map()]) {
         rejects(statics, 'defineModel(Pets): `statics` must be a plain object');
       }
+
       expect(() => defineModel({ table: 'pet_owners', columns: ownerColumns(), statics: { name: 'x' } }))
         .to
         .throwError(/^defineModel\(PetOwners\): `statics.name`/);
@@ -387,6 +399,7 @@ describe('features', () => {
       expect([typed.get('virtualAttributes'), typed.get('concurrency')]).to.eql(['known', 'known']);
       expect([typed.get('query'), typed.get('tableName'), typed.get('name')]).to.eql(['rejected', 'rejected', 'rejected']);
       const runtimeKeys = new Set();
+
       for (let it = Model; it; it = Object.getPrototypeOf(it)) {
         // Not the caches objection adds at runtime (`$$knex`, …), which aren't API.
         for (const key of Object.getOwnPropertyNames(it).filter(key => !key.startsWith('$$'))) {
@@ -396,12 +409,14 @@ describe('features', () => {
 
       for (const key of new Set([...runtimeKeys, ...typed.keys()])) {
         let rejected = false;
+
         try {
           defineModel({ table: 'owners', columns: ownerColumns(), statics: { [key]: undefined } });
         }
         catch {
           rejected = true;
         }
+
         if (rejected) {
           expect([key, typed.get(key)]).to.eql([key, 'rejected']);
         }
