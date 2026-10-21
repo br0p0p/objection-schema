@@ -1,6 +1,7 @@
 // Type tests for the schema-first `defineModel` / `defineModels` API.
 // Compiled by `pnpm run test:types`. Nothing here is executed.
 
+import type { QueryBuilder, QueryContext } from 'objection';
 import type { Insert, Patch, RelationErrors, Result, Row, RowWithGraph } from 'objection-schema';
 import { Model, raw, ref } from 'objection';
 import {
@@ -633,6 +634,108 @@ async function snakeCaseReference() {
   // @ts-expect-error the relation is `owner`, not `owner_id`
   snakeDb.Snake.query().withGraphFetched('owner_id');
 }
+
+// ----- references(): `modify` and `beforeInsert`, forward and inverse -----
+
+// Unannotated parameters are typed from the options (no implicit `any` under `strict`).
+const softOwnerId = column(z.number()).references('Owner', 'id', {
+  modify: (query) => {
+    expectType<Equal<typeof query, QueryBuilder<any, any>>>();
+    query.whereNull('owners.deletedAt');
+  },
+  beforeInsert: (model, ctx) => {
+    expectType<Equal<typeof ctx, QueryContext>>();
+  },
+  inverse: {
+    name: 'softPets',
+    modify: (query) => {
+      expectType<Equal<typeof query, QueryBuilder<any, any>>>();
+      query.whereNull('soft_pets.deletedAt');
+    },
+    beforeInsert: (model, ctx) => {
+      expectType<Equal<typeof ctx, QueryContext>>();
+    },
+  },
+});
+
+// The options don't change the inferred reference.
+expectType<
+  Equal<
+    (typeof softOwnerId)['~column']['references'],
+    { target: 'Owner'; column: 'id'; as: undefined; inverse: 'softPets'; inverseKind: 'many' }
+  >
+>();
+
+const SoftPet = defineModel({
+  table: 'soft_pets',
+  columns: {
+    id: column(z.number()).generated(),
+    deletedAt: z.string().nullable(),
+    ownerId: softOwnerId,
+    vetId: column(z.number().nullable()).references('Vet', 'id', {
+      as: 'doctor',
+      modify: ['active', 'local'],
+      inverse: { name: 'softPatient', kind: 'one', modify: 'alive' },
+    }),
+    sitterId: column(z.number()).references('Owner', 'id', {
+      modify: query => query.whereNull('owners.deletedAt'),
+      inverse: 'sat',
+    }),
+  },
+});
+
+const softDb = defineModels({ Owner, SoftPet, Vet });
+
+async function referenceOptions() {
+  const [pet] = await softDb.SoftPet.query().withGraphFetched('[owner, doctor, sitter]');
+  expectType<Equal<typeof pet.owner, Row<typeof softDb.Owner> | null>>();
+  expectType<Equal<typeof pet.doctor, Row<typeof softDb.Vet> | null>>();
+  expectType<Equal<typeof pet.sitter, Row<typeof softDb.Owner> | null>>();
+
+  const [owner] = await softDb.Owner.query().withGraphFetched('[softPets, sat]');
+  expectType<Equal<typeof owner.softPets, Row<typeof softDb.SoftPet>[]>>();
+  expectType<Equal<typeof owner.sat, Row<typeof softDb.SoftPet>[]>>();
+
+  const [vet] = await softDb.Vet.query().withGraphFetched('softPatient');
+  expectType<Equal<typeof vet.softPatient, Row<typeof softDb.SoftPet> | null>>();
+}
+
+// @ts-expect-error `modify` takes modifier names or a function
+column(z.number()).references('Owner', 'id', { modify: 1 });
+
+// @ts-expect-error `beforeInsert` takes a function
+column(z.number()).references('Owner', 'id', { beforeInsert: 'stamp' });
+
+// @ts-expect-error inverse `modify` takes modifier names or a function
+column(z.number()).references('Owner', 'id', { inverse: { name: 'pets', modify: 1 } });
+
+// Unknown keys are errors, on the key itself, so a typo can't drop a filter silently.
+column(z.number()).references('Owner', 'id', {
+  as: 'owner',
+  // @ts-expect-error `modfy` is not a references() option
+  modfy: 'alive',
+});
+
+column(z.number()).references('Owner', 'id', {
+  inverse: {
+    name: 'pets',
+    // @ts-expect-error `modfy` is not an inverse option
+    modfy: 'alive',
+  },
+});
+
+column(z.number()).references('Owner', 'id', {
+  // @ts-expect-error `kind` belongs in `inverse`
+  kind: 'one',
+});
+
+column(z.number()).references('Owner', 'id', {
+  inverse: {
+    name: 'pets',
+    // @ts-expect-error `as` names the forward relation; the inverse one is `name`
+    as: 'owners',
+  },
+});
 
 // ----- real application migration patterns (tests/migrations/README.md) -----
 

@@ -299,6 +299,10 @@ describe('properties', () => {
             as: fc.option(name, { nil: undefined }),
             inverse: fc.option(name, { nil: undefined }),
             inverseKind: fc.constantFrom('many', 'one'),
+            // The string form of `inverse` when the object form would only hold the name.
+            inverseAsString: fc.boolean(),
+            beforeInsert: fc.boolean(),
+            inverseBeforeInsert: fc.boolean(),
           }),
           { maxLength: 4 },
         ),
@@ -306,6 +310,12 @@ describe('properties', () => {
         keyed: fc.array(fc.record({ owner: model, target: model, name }), { maxLength: 3 }),
       });
     });
+
+    // Distinct `beforeInsert` hooks, so that the expected relations can say which one they get.
+    const forwardHook = () => {};
+    const inverseHook = () => {};
+
+    const hasPlainInverse = ref => ref.inverseKind === 'many' && !ref.inverseBeforeInsert;
 
     // Builds the registry for a spec. Every model has a `label` column, so a relation
     // named `label` must be rejected.
@@ -319,8 +329,19 @@ describe('properties', () => {
             if (ref.as)
               options.as = ref.as;
 
-            if (ref.inverse)
+            if (ref.beforeInsert)
+              options.beforeInsert = forwardHook;
+
+            if (ref.inverse && ref.inverseAsString && hasPlainInverse(ref)) {
+              options.inverse = ref.inverse;
+            }
+            else if (ref.inverse) {
               options.inverse = { name: ref.inverse, kind: ref.inverseKind };
+
+              if (ref.inverseBeforeInsert)
+                options.inverse.beforeInsert = inverseHook;
+            }
+
             columns[`fk${j}Id`] = column(z.number()).references(`M${ref.to}`, 'id', options);
           }
         });
@@ -359,19 +380,25 @@ describe('properties', () => {
     function expectedRelations(spec) {
       const defs = [];
       spec.references.forEach((ref, j) => {
-        defs.push({ owner: ref.from, name: ref.as || `fk${j}`, kind: 'BelongsToOneRelation' });
+        defs.push({
+          owner: ref.from,
+          name: ref.as || `fk${j}`,
+          kind: 'BelongsToOneRelation',
+          hook: ref.beforeInsert ? 'forward' : 'none',
+        });
 
         if (ref.inverse) {
           defs.push({
             owner: ref.to,
             name: ref.inverse,
             kind: ref.inverseKind === 'one' ? 'HasOneRelation' : 'HasManyRelation',
+            hook: ref.inverseBeforeInsert ? 'inverse' : 'none',
           });
         }
       });
       spec.declarations.forEach((d, i) => {
         // Two relations() declarations can't define the same name for a model either.
-        defs.push({ owner: d.owner, name: d.name, kind: 'HasManyRelation', declaration: i });
+        defs.push({ owner: d.owner, name: d.name, kind: 'HasManyRelation', hook: 'none', declaration: i });
       });
       // The keyed object holds one function per model, so a repeated name there overwrites
       // instead of conflicting: the last one wins, like an object literal.
@@ -380,7 +407,7 @@ describe('properties', () => {
       for (const k of spec.keyed) keyedLast.set(`${k.owner}.${k.name}`, k);
 
       for (const k of keyedLast.values()) {
-        defs.push({ owner: k.owner, name: k.name, kind: 'BelongsToOneRelation' });
+        defs.push({ owner: k.owner, name: k.name, kind: 'BelongsToOneRelation', hook: 'none' });
       }
 
       return defs;
@@ -412,6 +439,13 @@ describe('properties', () => {
       expect(share).to.be.within(0.2, 0.8);
     });
 
+    const hookOf = relation =>
+      relation.beforeInsert === forwardHook
+        ? 'forward'
+        : relation.beforeInsert === inverseHook
+          ? 'inverse'
+          : 'none';
+
     it('throws exactly when a name is defined twice or clashes with a column', () => {
       fc.assert(
         fc.property(registrySpec, (spec) => {
@@ -440,12 +474,12 @@ describe('properties', () => {
 
             for (let i = 0; i < spec.modelCount; ++i) {
               const actual = Object.entries(db[`M${i}`].modelClass.getRelations())
-                .map(([name, relation]) => `${name}:${relation.constructor.name}`)
+                .map(([name, relation]) => `${name}:${relation.constructor.name}:${hookOf(relation)}`)
                 .sort();
 
               const expected = defs
                 .filter(d => d.owner === i)
-                .map(d => `${d.name}:${d.kind}`)
+                .map(d => `${d.name}:${d.kind}:${d.hook}`)
                 .sort();
 
               expect(actual).to.eql(expected);

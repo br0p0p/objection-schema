@@ -91,6 +91,43 @@ const mutants = [
   ],
   [
     D,
+    `  modify?: RelationOptions['modify'];\n  /** Called for models inserted through the \`belongsToOne\` relation. */`,
+    `  /** Called for models inserted through the \`belongsToOne\` relation. */`,
+    'references() takes no modify',
+  ],
+  [
+    D,
+    `  modify?: RelationOptions['modify'];\n  /** Called for models inserted through the inverse relation. */`,
+    `  /** Called for models inserted through the inverse relation. */`,
+    'references() inverse takes no modify',
+  ],
+  [
+    D,
+    `modify?: string | readonly string[] | ((query: QueryBuilder<any, any>) => void);`,
+    `modify?: string | readonly string[] | ((query: any) => void);`,
+    'modify functions get an untyped query',
+  ],
+  [
+    D,
+    `  beforeInsert?: RelationOptions['beforeInsert'];\n}\n\n/** The object form`,
+    `}\n\n/** The object form`,
+    'references() takes no beforeInsert',
+  ],
+  [D, `options?: O & ExactReferenceOptions<O>,`, `options?: O,`, 'references() accepts unknown keys'],
+  [
+    D,
+    `P extends keyof InverseReferenceOptions ? O[K][P] : never`,
+    `O[K][P]`,
+    'references() inverse accepts unknown keys',
+  ],
+  [
+    D,
+    `    : never;\n};\n\ntype ReferenceOf<`,
+    `    : O[K];\n};\n\ntype ReferenceOf<`,
+    'references() accepts unknown top-level keys',
+  ],
+  [
+    D,
     `  [K in keyof C]?: ColIn<C[K]> | ValueExpression;\n}>;`,
     `  [K in keyof C]-?: ColIn<C[K]> | ValueExpression;\n}>;`,
     'Patch requires every column',

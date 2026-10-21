@@ -318,6 +318,125 @@ describe('features', () => {
     });
   });
 
+  describe('references() relation options', () => {
+    // `Pet.ownerId` references `Owner.id`, with the given options.
+    function makeReferenceModels(options) {
+      const Owner = defineModel({
+        table: 'owners',
+        columns: ownerColumns(),
+        modifiers: { present: q => q.whereNot('owners.name', 'Gone') },
+      });
+
+      const Pet = defineModel({
+        table: 'pets',
+        columns: {
+          id: column(z.number()).generated(),
+          name: z.string(),
+          species: z.string(),
+          ownerId: column(z.number().nullable().optional()).references('Owner', 'id', options),
+        },
+        modifiers: { dogs: q => q.where('pets.species', 'dog') },
+      });
+
+      return defineModels({ Owner, Pet });
+    }
+
+    async function insertPets(db) {
+      const a = await db.Owner.query().insert({ name: 'A' });
+      const gone = await db.Owner.query().insert({ name: 'Gone' });
+
+      for (const [name, species, owner] of [['Rex', 'dog', a], ['Tom', 'cat', a], ['Fido', 'dog', gone]]) {
+        await db.Pet.query().insert({ name, species, ownerId: owner.id });
+      }
+    }
+
+    // Modifier names resolve on the relation's target: `Owner` for `modify`, and `Pet`
+    // (which declares the column) for `inverse.modify`. Filters use table names.
+    const variants = [
+      [
+        'functions',
+        {
+          modify: q => q.whereNot('owners.name', 'Gone'),
+          inverse: { name: 'dogs', modify: q => q.where('pets.species', 'dog') },
+        },
+      ],
+      ['modifier names', { modify: 'present', inverse: { name: 'dogs', modify: ['dogs'] } }],
+    ];
+
+    for (const [label, options] of variants) {
+      for (const method of ['withGraphFetched', 'withGraphJoined']) {
+        it(`\`modify\` and \`inverse.modify\` (${label}) filter the relations with ${method}`, async () => {
+          const db = makeReferenceModels(options);
+          await insertPets(db);
+
+          const pets = await db.Pet.query()[method]('owner').orderBy('pets.id');
+          expect(pets.map(it => [it.name, it.owner && it.owner.name])).to.eql([
+            ['Rex', 'A'],
+            ['Tom', 'A'],
+            ['Fido', null],
+          ]);
+
+          const owners = await db.Owner.query()[method]('dogs').orderBy('owners.id');
+          expect(owners.map(it => [it.name, it.dogs.map(dog => dog.name)])).to.eql([
+            ['A', ['Rex']],
+            ['Gone', ['Fido']],
+          ]);
+        });
+      }
+    }
+
+    it('an inverse given by name gets none of the forward options', async () => {
+      const db = makeReferenceModels({ modify: 'present', inverse: 'pets' });
+      await insertPets(db);
+
+      const owners = await db.Owner.query().withGraphFetched('pets').orderBy('id');
+      expect(owners.map(it => it.pets.map(pet => pet.name).sort())).to.eql([
+        ['Rex', 'Tom'],
+        ['Fido'],
+      ]);
+    });
+
+    it('`beforeInsert` and `inverse.beforeInsert` run for models inserted through each relation', async () => {
+      const seen = [];
+
+      const db = makeReferenceModels({
+        beforeInsert(owner) {
+          seen.push(`owner ${owner.name}`);
+        },
+        inverse: {
+          name: 'pets',
+          beforeInsert(pet) {
+            seen.push(`pet ${pet.name}`);
+            pet.species = 'dog';
+          },
+        },
+      });
+
+      const owner = await db.Owner.query().insert({ name: 'A' });
+      await db.Owner.relatedQuery('pets').for(owner.id).insert({ name: 'Rex', species: 'unknown' });
+      const pet = await db.Pet.query().insert({ name: 'Tom', species: 'cat' });
+      await db.Pet.relatedQuery('owner').for(pet.id).insert({ name: 'B' });
+
+      expect(seen).to.eql(['pet Rex', 'owner B']);
+      expect((await knex('pets').where('name', 'Rex').first()).species).to.be('dog');
+    });
+
+    it('rejects unknown options, at the top level and in `inverse`', () => {
+      const reference = options => () => column(z.number()).references('Owner', 'id', options);
+
+      expect(reference({ as: 'owner', modfy: 'present' })).to.throwError(
+        /^references\(\): unknown option "modfy"$/,
+      );
+      expect(reference({ kind: 'one' })).to.throwError(/^references\(\): unknown option "kind"$/);
+      expect(reference({ inverse: { name: 'pets', modfy: 'dogs' } })).to.throwError(
+        /^references\(\): unknown option "modfy" in inverse$/,
+      );
+      expect(reference({ inverse: { name: 'pets', as: 'owners' } })).to.throwError(
+        /^references\(\): unknown option "as" in inverse$/,
+      );
+    });
+  });
+
   describe('relation kinds', () => {
     it('hasOne and hasOneThrough', async () => {
       const Owner = defineModel({ table: 'owners', columns: ownerColumns() });

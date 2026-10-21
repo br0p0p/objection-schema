@@ -126,8 +126,44 @@ export interface ReferenceOptions {
   /** Name of the derived `belongsToOne` relation. Defaults to the column name without `Id` / `_id`. */
   as?: string;
   /** Also create the inverse relation on the target model (`hasMany`, or `hasOne` with `kind: 'one'`). */
-  inverse?: string | { name: string; kind?: 'many' | 'one' };
+  inverse?: string | InverseReferenceOptions;
+  /**
+   * Modifier name(s) or a function applied to every query of the `belongsToOne` relation.
+   * Names resolve on the referenced model (`target`). Filter by table name
+   * (`query.whereNull('persons.deletedAt')`), not by relation name.
+   */
+  modify?: RelationOptions['modify'];
+  /** Called for models inserted through the `belongsToOne` relation. */
+  beforeInsert?: RelationOptions['beforeInsert'];
 }
+
+/** The object form of `references()`'s `inverse` option. */
+interface InverseReferenceOptions {
+  /** Name of the inverse relation on the target model. */
+  name: string;
+  /** `'many'` (the default) for a `hasMany`, `'one'` for a `hasOne`. */
+  kind?: 'many' | 'one';
+  /**
+   * Modifier name(s) or a function applied to every query of the inverse relation.
+   * Names resolve on the model that declares the column. Filter by table name, not by relation name.
+   */
+  modify?: RelationOptions['modify'];
+  /** Called for models inserted through the inverse relation. */
+  beforeInsert?: RelationOptions['beforeInsert'];
+}
+
+// Unknown keys of `references()` options become `never`, at the top level and in the object
+// form of `inverse`, so a typo (which would drop a filter) is an error on the typo itself. An
+// inferred type parameter gets no excess property checks, and `NoInfer` needs TypeScript 5.4.
+type ExactReferenceOptions<O> = {
+  [K in keyof O]: K extends keyof ReferenceOptions
+    ? K extends 'inverse'
+      ? O[K] extends object
+        ? { [P in keyof O[K]]: P extends keyof InverseReferenceOptions ? O[K][P] : never }
+        : O[K]
+      : O[K]
+    : never;
+};
 
 type ReferenceOf<T extends string, C extends string, O extends ReferenceOptions> = {
   target: T;
@@ -162,11 +198,15 @@ export interface Column<
    * A foreign key to `target.column`, where `target` is a key in the `defineModels` registry.
    * With a `column` from `defineModelNames(...)`, `target` must be one of the declared names.
    * Creates a `belongsToOne` relation, plus an inverse one on the target when `inverse` is given.
+   * `modify` and `beforeInsert` work as in the relation builders, for the `belongsToOne`
+   * relation, and in the object form of `inverse` for the inverse one. A modifier name resolves
+   * on the relation's target: the referenced model for `modify`, and the model that declares
+   * the column for `inverse.modify`.
    */
-  references<const T extends Names, const C extends string, const O extends ReferenceOptions = {}>(
+  references<const T extends Names, const C extends string, const O extends ReferenceOptions>(
     target: T,
     column: C,
-    options?: O,
+    options?: O & ExactReferenceOptions<O>,
   ): Column<S, F, ReferenceOf<T, C, O>, Names>;
 }
 
