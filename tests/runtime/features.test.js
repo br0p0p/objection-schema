@@ -715,6 +715,7 @@ describe('features', () => {
     describe('bindKnex gives each definition its own bound class', () => {
       it('two definitions of the same table', async () => {
         const Owner1 = defineModel({ table: 'owners', columns: ownerColumns() });
+
         const Owner2 = defineModel({
           table: 'owners',
           columns: { ...ownerColumns(), name: z.string().min(5) },
@@ -739,6 +740,7 @@ describe('features', () => {
       it('relations of two registries over the same tables', () => {
         const makeRegistry = () => {
           const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
           const Pet = defineModel({
             table: 'pets',
             columns: {
@@ -768,6 +770,7 @@ describe('features', () => {
 
       it('a subclass of a generated class', () => {
         const Owner = defineModel({ table: 'owners', columns: ownerColumns() });
+
         class SubOwner extends Owner.modelClass {}
 
         const Bound = Owner.modelClass.bindKnex(knex);
