@@ -145,6 +145,55 @@ const mutants = [
     'findById() result is never undefined',
   ],
   ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
+  [
+    D,
+    `  readonly modelClass: EntryOf<R, K>['modelClass'];`,
+    `  readonly modelClass: ModelClass<Model>;`,
+    'modelClass ignores `base` and the row',
+  ],
+  [
+    'lib/defineModel.ts',
+    `modifiers: M; base: B }>;`,
+    `modifiers: M }>;`,
+    'the spec drops `base`',
+  ],
+  [
+    D,
+    `= Omit<B, keyof typeof Model>\n  & ModelClassFor<ModelInstanceOf<B, Row>>;`,
+    `= B\n  & ModelClassFor<ModelInstanceOf<B, Row>>;`,
+    'modelClass is `B & ModelClass<…>`: query() returns the base\'s instances',
+  ],
+  [
+    D,
+    `= Omit<B, keyof typeof Model>\n  & ModelClassFor<ModelInstanceOf<B, Row>>;`,
+    `= ModelClassFor<ModelInstanceOf<B, Row>>\n  & B;`,
+    'modelClass is `ModelClass<…> & B`: InstanceType drops the row',
+  ],
+  [
+    D,
+    `  : Omit<InstanceType<B>, ClashingKeys<InstanceType<B>, Row>>)`,
+    `  : InstanceType<B>)`,
+    'a base field clashing with a column becomes never',
+  ],
+  [
+    D,
+    `  ? InstanceType<B>\n  : Omit<`,
+    `  ? Omit<InstanceType<B>, keyof Row>\n  : Omit<`,
+    'modelClass instances bind `this` (query builders) to the base',
+  ],
+  [D, `  modelClass: ModelClass<M>;\n}`, `  modelClass: ModelClass<Model>;\n}`, 'classic modelClass drops the instance type'],
+  [
+    D,
+    `hooks?: Hooks<RowOfColumns<C>, HookInstance<B, RowOfColumns<C>>>;`,
+    `hooks?: Hooks<RowOfColumns<C>>;`,
+    'hooks don\'t see the base\'s members',
+  ],
+  [
+    D,
+    `Row> = Omit<InstanceType<B>, keyof Row>;`,
+    `Row> = InstanceType<B>;`,
+    'update hooks get base-declared columns as required',
+  ],
 ];
 
 function passes() {
