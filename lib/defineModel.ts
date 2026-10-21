@@ -8,7 +8,15 @@ import type {
 } from 'objection';
 import type { ColumnMeta } from './column';
 import type { ModelClass } from './objection';
-import type { AnyModelHandle, Columns, ModelConfig, ModelDefinition, StrKeys } from './types';
+import type {
+  AnyModelHandle,
+  BaseClass,
+  Columns,
+  DefaultBase,
+  ModelConfig,
+  ModelDefinition,
+  StrKeys,
+} from './types';
 import { normalizeColumns } from './column';
 import { isModelClass, Model } from './objection';
 import { StandardSchemaValidator } from './StandardSchemaValidator';
@@ -94,9 +102,10 @@ export function defineModel<
   C extends Columns,
   const Id extends StrKeys<C> | readonly StrKeys<C>[] = 'id' & StrKeys<C>,
   M extends string = never,
+  B extends BaseClass = DefaultBase,
 >(
-  config: ModelConfig<T, C, Id, M>,
-): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M }>;
+  config: ModelConfig<T, C, Id, M, B>,
+): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M; base: B }>;
 export function defineModel(config: RuntimeConfig): object {
   const {
     name,
