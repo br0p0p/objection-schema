@@ -185,7 +185,8 @@ casts: it has the base's own statics (`Pet.modelClass.deleteType`), and its inst
 (`new Pet.modelClass()`, `InstanceType<typeof Pet.modelClass>`, `Pet.modelClass.query()`, a
 custom query builder of the base) have the base's members plus the row. Where the base declares a
 field with a type the column's values don't fit (e.g. `id!: string` for a `z.number()` column),
-the column wins. The same holds for `db.Pet.modelClass` and `Pet.bindKnex(knex).modelClass`. A
+the column wins (objection's `this`-typed members, such as `query()` and `$query()`, then fall back
+to the base's instance type). The same holds for `db.Pet.modelClass` and `Pet.bindKnex(knex).modelClass`. A
 classic model in a registry gets `ModelClass<Movie>`, without its own statics.
 
 Hooks receive the model instance, and their `row` is typed so: the base's members (objection's
