@@ -37,6 +37,7 @@ export type {
   ModelRelationSpec,
   Models,
   ModelSpec,
+  ModelStatics,
   ParseRelationExpression,
   Patch,
   Query,

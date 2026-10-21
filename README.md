@@ -174,7 +174,9 @@ export const { column } = defineModelNames('Person', 'Animal', 'Vet', 'Movie');
 ### Incremental migration
 
 Keep existing hooks and serializers with `defineModel({ base: ExistingModel, table, columns })`.
-The generated subclass shadows getter-only statics without changing the original class.
+The generated subclass shadows getter-only statics without changing the original class. Per-model
+statics the base reads (`deleteType`, `jsonSchema`, …) go in [`statics`](#statics), not in a
+subclass of the base.
 Declare JSON columns explicitly, including attributes absent from the old `jsonSchema`.
 When new relations are declared, they replace the inherited `relationMappings`, rather than
 merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
@@ -192,6 +194,49 @@ classic model in a registry gets `ModelClass<Movie>`, without its own statics.
 Hooks receive the model instance, and their `row` is typed so: the base's members (objection's
 `Model` without a `base`) plus the row, with the row fields partial in the update and delete
 hooks, so `row.$query()` or a base method needs no cast.
+
+### Statics
+
+Set statics on the generated class with `statics`, instead of writing a one-off subclass of the
+base for each model. They are defined as own properties (like class fields), so they shadow
+getter-only statics of a base without changing it:
+
+```ts
+const Pet = defineModel({
+  base: AppModel,
+  table: 'pets',
+  columns,
+  statics: {
+    virtualAttributes: ['label'], // objection's statics are type-checked
+    deleteType: 'soft', // custom statics, read by a base class, a plugin or repositories
+    jsonSchema: legacyJsonSchema(columns),
+  },
+});
+
+Pet.modelClass.deleteType; // 'soft', also on db.Pet.modelClass and Pet.bindKnex(knex).modelClass
+```
+
+- **objection's statics** (`virtualAttributes`, `useLimitInFirst`, `defaultGraphOptions`,
+  `jsonSchema`, `QueryBuilder`, `createNotFoundError`, `concurrency`, …) are checked against
+  objection's types. Instance members, such as the getters `virtualAttributes` names, come from
+  the `base`.
+- **Custom statics** (`deleteType`, `softDeleteKey`, …) are kept on `modelClass`, and in its type
+  with their literal types. One that the base declares has to fit the base's type.
+- **Rejected** (compile errors, and errors when the definition is created): the keys the library
+  sets itself (`tableName` from `table`, `idColumn` from `id`, `modifiers`, `jsonAttributes` and
+  `createValidator` from `columns` and `validate`, `name`, and `relationMappings`, which
+  `defineModels()` sets from the declared relations; classic relations go on a `base`),
+  `prototype`, `columnNameMappers` (see [Known limitations](#known-limitations)), and objection's
+  other statics, e.g. `query`, `knex`, `fromJson` and the static query hooks
+  (`static beforeInsert`, …), which would replace objection's or the base's: put those on a `base`.
+- **`jsonSchema`** doesn't validate (the column schemas do), but with
+  `pickJsonSchemaProperties: true` objection keeps only the `jsonSchema` properties when it writes
+  rows, so columns missing from a legacy schema would be dropped from inserts and updates.
+- **`QueryBuilder`:** a custom query builder's extra methods work at runtime, but the typed query
+  API doesn't know them. Use `toQueryBuilder(query)`, or `Pet.modelClass.query()`, which is typed
+  from a base's custom query builder.
+
+App-level `defineModel` wrappers can name the option's type as `ModelStatics`.
 
 [Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
 sources, executable migration slices, adaptations and bugs found. These are incremental
@@ -270,7 +315,9 @@ Run `pnpm run bench`, `bench:validation` and `bench:typecheck`. Measured on Node
   still strings).
 
 - **Column naming:** property names are column names. For snake_case use knex's
-  `knexSnakeCaseMappers()`; per-model casing needs a hook in objection.
+  `knexSnakeCaseMappers()`; per-model casing needs a hook in objection. `statics` rejects
+  `columnNameMappers`: ids, relation joins and typed queries use property names as column names,
+  so it would break them.
 - **Untyped query methods:** aggregates, raw/subquery selects, JSON operators and unions. Use
   `toQueryBuilder(query)` for these.
 - **Joined columns:** `leftJoinRelated` / `withGraphJoined` columns aren't typed as nullable yet.
