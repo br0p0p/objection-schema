@@ -101,7 +101,8 @@ catches each one is named here.
      (`knex` types) are erased. Schema libraries come from users, so never import zod or valibot
      in `lib/`.
    - It's built as CommonJS. `index.mts` only re-exports `./index.js`.
-   - It uses only objection's public API, and validation is synchronous (objection's pipeline is).
+   - It uses only objection's public API, except for read-only checks of undeclared objection
+     state, which live in `lib/objection.ts`. Validation is synchronous (objection's pipeline is).
 5. **Mutation score is 100%** (Stryker `break: 100`). New `lib/` code needs tests that kill every
    mutant. Only a truly behaviour-equivalent mutant (e.g. a performance-only difference) may be
    disabled, in place and with a reason:

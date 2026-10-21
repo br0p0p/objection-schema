@@ -222,6 +222,15 @@ A definition belongs to one registry: its relations are set on its model class, 
 second `defineModels` call (or twice to one) throws at runtime. Call `defineModel()` again for
 another registry, e.g. in tests.
 
+Create the registry before the models are used. objection caches a class's relations the first
+time it reads them (eager and graph queries, inserts, `fromJson()`, `getRelations()`,
+`$toDatabaseJson()`, `bindKnex()`, …), so relations added afterwards would be ignored. If a
+definition that gets relations was used like that, `defineModels` throws
+(`the relations of "Person" (Persons) were read before this registry was created`). Importing the
+models only from the module that calls `defineModels` keeps the order right. This isn't detected for
+a class you derive from a definition's class (`class Sub extends Person.modelClass {}`): if its
+relations are read before the registry, it keeps the stale ones.
+
 **Checking `references()` targets where they're written.** Declare the registry's names once. They
 can't be derived from the registry itself, whose type depends on these columns:
 
@@ -253,6 +262,19 @@ Declare JSON columns explicitly, including attributes absent from the old `jsonS
 When new relations are declared, they replace the inherited `relationMappings`, rather than
 merging with it. Omitted config hooks remain inherited; configured hooks replace the base's
 hook of the same name (they aren't automatically chained).
+
+`modelClass` is typed from the base, so existing code that takes the class keeps working without
+casts: it has the base's own statics (`Pet.modelClass.deleteType`), and its instances
+(`new Pet.modelClass()`, `InstanceType<typeof Pet.modelClass>`, `Pet.modelClass.query()`, a
+custom query builder of the base) have the base's members plus the row. Where the base declares a
+field with a type the column's values don't fit (e.g. `id!: string` for a `z.number()` column),
+the column wins (objection's `this`-typed members, such as `query()` and `$query()`, then fall back
+to the base's instance type). The same holds for `db.Pet.modelClass` and `Pet.bindKnex(knex).modelClass`. A
+classic model in a registry gets `ModelClass<Movie>`, without its own statics.
+
+Hooks receive the model instance, and their `row` is typed so: the base's members (objection's
+`Model` without a `base`) plus the row, with the row fields partial in the update and delete
+hooks, so `row.$query()` or a base method needs no cast.
 
 [Real-app migration probes](tests/migrations/README.md) document pinned Wiki.js and Conduit
 sources, executable migration slices, adaptations and bugs found. These are incremental

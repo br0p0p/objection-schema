@@ -7,6 +7,7 @@ import * as objection from 'objection';
 export type ModelClass = typeof objection.Model & {
   getTableName: () => string;
   getIdColumn: () => string | string[];
+  uniqueTag: () => string;
 };
 
 interface Undeclared {
@@ -56,4 +57,15 @@ export function isQueryValue(value: {}): boolean {
     || typeof candidate.toSQL === 'function'
     || candidate.isObjectionQueryBuilderBase === true
   );
+}
+
+/**
+ * Whether objection has read (and cached) this class's own relations. objection's `cachedGet`
+ * (lib/model/Model.js) stores `getRelationMappings()` as an own `$$relationMappings` the first time
+ * it's called, and every relation lookup goes through it (`getRelationNames()` included), so a
+ * `relationMappings` set afterwards is never read. If objection renames the property, this
+ * returns false and the check that uses it stops firing, but nothing else changes.
+ */
+export function haveRelationsBeenRead(modelClass: ModelClass): boolean {
+  return Object.hasOwn(modelClass, '$$relationMappings');
 }
