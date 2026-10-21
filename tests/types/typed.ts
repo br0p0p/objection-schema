@@ -2,7 +2,7 @@
 // Compiled by `pnpm run test:types`. Nothing here is executed.
 
 import type { Knex } from 'knex';
-import type { ModelClass, ModelConstructor, Page, RelationMappings } from 'objection';
+import type { ModelClass, ModelConstructor, ModelOptions, Page, QueryContext, RelationMappings } from 'objection';
 import type {
   Hooks,
   Insert,
@@ -121,6 +121,75 @@ defineModels(
 
 // @ts-expect-error id must be one of the columns
 defineModel({ table: 't', id: 'uuid', columns: { id: z.number() } });
+
+// ----- hooks: typed rows; `replaceHooks` lists configured hooks only -----
+
+const hookColumns = { id: column(z.number()).generated(), name: z.string() };
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: {
+    beforeInsert: (row, ctx) => {
+      expectType<Equal<typeof row, { id: number; name: string } & Omit<Model, 'id' | 'name'>>>();
+      expectType<Equal<typeof ctx, QueryContext>>();
+    },
+    beforeUpdate: async (row, options, ctx) => {
+      expectType<Equal<typeof row, Partial<{ id: number; name: string }> & Omit<Model, 'id' | 'name'>>>();
+      expectType<Equal<typeof options, ModelOptions>>();
+      expectType<Equal<typeof ctx, QueryContext>>();
+    },
+  },
+  replaceHooks: ['beforeInsert'],
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: { beforeInsert: () => {}, afterFind: () => {} },
+  replaceHooks: ['beforeInsert', 'afterFind'],
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: {
+    // @ts-expect-error unknown hook
+    beforeSave: () => {},
+  },
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: {
+    // @ts-expect-error the row is typed by the columns
+    beforeInsert: row => row.nope,
+  },
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: { beforeInsert: () => {} },
+  // @ts-expect-error `afterInsert` isn't a configured hook
+  replaceHooks: ['afterInsert'],
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  // @ts-expect-error no hooks are configured
+  replaceHooks: ['beforeInsert'],
+});
+
+defineModel({
+  table: 'hooked',
+  columns: hookColumns,
+  hooks: { beforeInsert: () => {} },
+  // @ts-expect-error unknown hook
+  replaceHooks: ['beforeSave'],
+});
 
 // ---------------------------------------------------------------------------
 // Inferred row / insert / patch types

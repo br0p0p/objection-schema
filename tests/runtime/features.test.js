@@ -4,7 +4,7 @@
 // relation options, composite keys, classic model handles, error paths and handle methods.
 
 const expect = require('expect.js');
-const { Model, ValidationError, raw } = require('objection');
+const { Model, ValidationError, mixin, raw } = require('objection');
 
 const {
   defineModel,
@@ -192,6 +192,327 @@ describe('features', () => {
           new RegExp(`unknown hook "${name}"`),
         );
       }
+    });
+
+    describe('base hooks', () => {
+      const ownerTable = () => ({ table: 'owners', columns: ownerColumns() });
+
+      it('runs the base\'s hook first, then the configured one', async () => {
+        class Base extends Model {
+          $beforeInsert() {
+            this.name = `${this.name}!base`;
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        const owner = await Owner.query().insert({ name: 'h' });
+        expect(owner.name).to.be('h!base!hook');
+        expect((await Owner.query().findById(owner.id)).name).to.be('h!base!hook');
+      });
+
+      it('chains all seven hooks, passing the base the same row and arguments', async () => {
+        const calls = [];
+
+        const names = [
+          'beforeInsert',
+          'afterInsert',
+          'afterFind',
+          'beforeUpdate',
+          'afterUpdate',
+          'beforeDelete',
+          'afterDelete',
+        ];
+
+        class Base extends Model {}
+
+        for (const name of names) {
+          Base.prototype[`$${name}`] = function (...args) {
+            calls.push({ name, by: 'base', row: this, args });
+          };
+        }
+
+        const hooks = Object.fromEntries(
+          names.map(name => [name, (row, ...args) => calls.push({ name, by: 'hook', row, args })]),
+        );
+
+        const Owner = defineModel({ ...ownerTable(), base: Base, hooks });
+
+        const owner = await Owner.query().insert({ name: 'A' });
+        await Owner.query().findById(owner.id);
+        await owner.$query().patch({ name: 'B' });
+        await owner.$query().delete();
+
+        expect(calls.map(it => `${it.name}:${it.by}`)).to.eql(
+          names.flatMap(name => [`${name}:base`, `${name}:hook`]),
+        );
+
+        for (let i = 0; i < calls.length; i += 2) {
+          const [base, hook] = [calls[i], calls[i + 1]];
+          expect(base.row).to.be(hook.row);
+          expect(base.args.length).to.be(hook.args.length);
+          base.args.forEach((arg, j) => expect(arg).to.be(hook.args[j]));
+        }
+
+        const beforeUpdate = calls.find(it => it.name === 'beforeUpdate');
+        expect(beforeUpdate.args.length).to.be(2);
+        expect(beforeUpdate.args[0].patch).to.be(true);
+        expect('transaction' in beforeUpdate.args[1]).to.be(true);
+      });
+
+      it('stays synchronous when the base\'s hook is', () => {
+        const calls = [];
+
+        class Base extends Model {
+          $beforeInsert(ctx) {
+            calls.push(['base', ctx]);
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: { beforeInsert: (row, ctx) => calls.push(['hook', ctx]) },
+        });
+
+        const ctx = {};
+        const result = Owner.modelClass.fromJson({ name: 'A' }).$beforeInsert(ctx);
+
+        expect(result).to.be(2);
+        expect(calls).to.eql([['base', ctx], ['hook', ctx]]);
+      });
+
+      it('waits for an async base hook before running the configured one', async () => {
+        const calls = [];
+
+        class Base extends Model {
+          async $beforeInsert() {
+            calls.push('base start');
+            await new Promise(resolve => setTimeout(resolve, 5));
+            calls.push('base end');
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: {
+            beforeInsert: async (row) => {
+              calls.push('hook');
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        const pending = Owner.modelClass.fromJson({ name: 'A' }).$beforeInsert({});
+        expect(calls).to.eql(['base start']);
+        await pending;
+        expect(calls).to.eql(['base start', 'base end', 'hook']);
+
+        expect((await Owner.query().insert({ name: 'h' })).name).to.be('h!hook');
+      });
+
+      it('doesn\'t run the configured hook when the base\'s hook rejects', async () => {
+        const calls = [];
+
+        class Base extends Model {
+          async $beforeInsert() {
+            throw new Error('base failed');
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: { beforeInsert: () => calls.push('hook') },
+        });
+
+        try {
+          await Owner.query().insert({ name: 'h' });
+          expect().fail('should have thrown');
+        }
+        catch (err) {
+          expect(err.message).to.be('base failed');
+        }
+
+        expect(calls).to.eql([]);
+        expect(await Owner.query().resultSize()).to.be(0);
+      });
+
+      it('chains through bindKnex', async () => {
+        class Base extends Model {
+          $beforeInsert() {
+            this.name = `${this.name}!base`;
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        const owner = await Owner.bindKnex(knex).query().insert({ name: 'h' });
+        expect(owner.name).to.be('h!base!hook');
+      });
+
+      it('chains onto a plugin mixed into the base', async () => {
+        const plugin = Base =>
+          class extends Base {
+            $beforeInsert(ctx) {
+              this.name = `${this.name}!plugin`;
+
+              return super.$beforeInsert(ctx);
+            }
+          };
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: mixin(Model, [plugin]),
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        expect((await Owner.query().insert({ name: 'h' })).name).to.be('h!plugin!hook');
+      });
+
+      it('chains onto a definition used as the base', async () => {
+        const Parent = defineModel({
+          ...ownerTable(),
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!parent`;
+            },
+          },
+        });
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Parent.modelClass,
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        expect((await Owner.query().insert({ name: 'h' })).name).to.be('h!parent!hook');
+      });
+
+      it('uses the base\'s hook at call time, so later patches to the base apply', async () => {
+        class Base extends Model {}
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: {
+            beforeInsert: (row) => {
+              row.name = `${row.name}!hook`;
+            },
+          },
+        });
+
+        Base.prototype.$beforeInsert = function () {
+          this.name = `${this.name}!late`;
+        };
+
+        expect((await Owner.query().insert({ name: 'h' })).name).to.be('h!late!hook');
+      });
+
+      it('replaces the base\'s hook for the hooks listed in `replaceHooks`', async () => {
+        const calls = [];
+
+        class Base extends Model {
+          $beforeInsert() {
+            calls.push('base beforeInsert');
+          }
+
+          $afterInsert() {
+            calls.push('base afterInsert');
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: {
+            beforeInsert: () => calls.push('hook beforeInsert'),
+            afterInsert: () => calls.push('hook afterInsert'),
+          },
+          replaceHooks: ['beforeInsert'],
+        });
+
+        await Owner.query().insert({ name: 'h' });
+        expect(calls).to.eql(['hook beforeInsert', 'base afterInsert', 'hook afterInsert']);
+      });
+
+      it('drops a base hook with a no-op listed in `replaceHooks`', async () => {
+        class Base extends Model {
+          $beforeInsert() {
+            this.name = `${this.name}!base`;
+          }
+        }
+
+        const Owner = defineModel({
+          ...ownerTable(),
+          base: Base,
+          hooks: { beforeInsert: () => {} },
+          replaceHooks: ['beforeInsert'],
+        });
+
+        expect((await Owner.query().insert({ name: 'h' })).name).to.be('h');
+      });
+
+      it('rejects unknown hooks in `replaceHooks`', () => {
+        expect(() =>
+          defineModel({ ...ownerTable(), hooks: {}, replaceHooks: ['beforeSave'] }),
+        ).to.throwError((err) => {
+          expect(err.message).to.be('defineModel(Owners): unknown hook "beforeSave" in `replaceHooks`');
+        });
+      });
+
+      it('rejects `replaceHooks` names that are only inherited from Object.prototype', () => {
+        for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+          const hooks = Object.defineProperty({}, name, { value() {}, enumerable: false });
+
+          expect(() =>
+            defineModel({ ...ownerTable(), hooks, replaceHooks: [name] }),
+          ).to.throwError(new RegExp(`unknown hook "${name}" in \`replaceHooks\``));
+        }
+      });
+
+      it('rejects `replaceHooks` entries without a configured hook', () => {
+        expect(() =>
+          defineModel({
+            ...ownerTable(),
+            hooks: { afterInsert() {} },
+            replaceHooks: ['afterInsert', 'beforeInsert'],
+          }),
+        ).to.throwError((err) => {
+          expect(err.message).to.be(
+            'defineModel(Owners): hook "beforeInsert" in `replaceHooks` is not in `hooks`',
+          );
+        });
+
+        expect(() => defineModel({ ...ownerTable(), replaceHooks: ['beforeInsert'] })).to.throwError(
+          /hook "beforeInsert" in `replaceHooks` is not in `hooks`/,
+        );
+      });
     });
   });
 
