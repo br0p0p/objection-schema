@@ -25,10 +25,10 @@ import { StandardSchemaValidator } from './StandardSchemaValidator';
 type ModelInstance = InstanceType<ModelClass>;
 
 /** A hook from the config: the row, then the arguments objection passes to `$hook`. */
-type Hook = (row: ModelInstance, ...args: any[]) => unknown;
+type Hook = (row: ModelInstance, ...args: any[]) => void | PromiseLike<void>;
 
 /** The `$hook` method objection calls on model instances. */
-type HookMethod = (this: ModelInstance, ...args: any[]) => unknown;
+type HookMethod = (this: ModelInstance, ...args: any[]) => void | PromiseLike<void>;
 
 /** Wraps a hook into the `$hook` method objection calls on model instances. */
 interface HookFactories {
@@ -217,6 +217,7 @@ export function defineModel(config: RuntimeConfig): object {
     }
 
     const method = `$${hookName}`;
+
     const fn = replaceHooks.includes(hookName)
       ? hookFns[hookName]
       : chainHook(hookFns[hookName], method, modelClass);

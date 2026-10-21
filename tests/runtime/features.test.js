@@ -221,6 +221,7 @@ describe('features', () => {
 
       it('chains all seven hooks, passing the base the same row and arguments', async () => {
         const calls = [];
+
         const names = [
           'beforeInsert',
           'afterInsert',
@@ -242,6 +243,7 @@ describe('features', () => {
         const hooks = Object.fromEntries(
           names.map(name => [name, (row, ...args) => calls.push({ name, by: 'hook', row, args })]),
         );
+
         const Owner = defineModel({ ...ownerTable(), base: Base, hooks });
 
         const owner = await Owner.query().insert({ name: 'A' });
