@@ -148,6 +148,15 @@ A definition belongs to one registry: its relations are set on its model class, 
 second `defineModels` call (or twice to one) throws at runtime. Call `defineModel()` again for
 another registry, e.g. in tests.
 
+Create the registry before the models are used. objection caches a class's relations the first
+time it reads them (eager and graph queries, inserts, `fromJson()`, `getRelations()`,
+`$toDatabaseJson()`, `bindKnex()`, …), so relations added afterwards would be ignored. If a
+definition that gets relations was used like that, `defineModels` throws
+(`the relations of "Person" (Persons) were read before this registry was created`). Importing the
+models only from the module that calls `defineModels` keeps the order right. This isn't detected for
+a class you derive from a definition's class (`class Sub extends Person.modelClass {}`): if its
+relations are read before the registry, it keeps the stale ones.
+
 **Checking `references()` targets where they're written.** Declare the registry's names once. They
 can't be derived from the registry itself, whose type depends on these columns:
 

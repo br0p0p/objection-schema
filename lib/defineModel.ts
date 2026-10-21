@@ -135,6 +135,9 @@ export interface RuntimeHandle extends HandleMeta {
   bindKnex: (knex: TransactionOrKnex) => RuntimeHandle;
 }
 
+// Numbers the definitions, to give each generated class its own `uniqueTag()`.
+let definitionCount = 0;
+
 // Creates a model definition from a plain configuration object. Under the hood
 // an ordinary objection model class is generated, which is what makes the
 // definition fully interoperable with classic models, query builders, plugins,
@@ -184,6 +187,8 @@ export function defineModel(config: RuntimeConfig): object {
 
   const staticValues = checkStatics(className, statics);
   const tableName = table;
+  // Stryker disable next-line UpdateOperator: counting down gives unique ids too.
+  const definitionId = definitionCount++;
 
   // Computed property name gives the class (and stack traces) a proper name.
   // Class fields define own properties: assignments would invoke inherited setters
@@ -198,6 +203,13 @@ export function defineModel(config: RuntimeConfig): object {
     static createValidator = validate
       ? () => new StandardSchemaValidator({ columns: cols })
       : () => new StandardSchemaValidator({ columns: [] });
+
+    // objection caches the classes `bindKnex` creates on the knex instance by this tag, which
+    // is `${tableName}_${name}`. Two definitions of the same table would share one bound class.
+    // `super.uniqueTag()` keeps the class name in it, so subclasses still get their own.
+    static uniqueTag() {
+      return `${super.uniqueTag()}_${definitionId}`;
+    }
   } }[className];
 
   // Like the class fields above: own properties, which shadow getter-only statics of the base.
