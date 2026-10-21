@@ -890,6 +890,7 @@ export interface ModelSpec {
 
 /** For lib/: `base`'s constraint, and its default (objection's `Model`). */
 export type BaseClass = ModelConstructor<Model>;
+
 export type DefaultBase = typeof Model;
 
 type BaseOf<Sp extends ModelSpec> = Sp extends { base: infer B extends ModelConstructor<Model> }

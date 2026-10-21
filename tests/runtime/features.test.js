@@ -231,12 +231,14 @@ describe('features', () => {
       }
 
       const seen = [];
+
       const Owner = defineModel({
         base: AppModel,
         table: 'owners',
         columns: ownerColumns(),
         hooks: { beforeInsert(row) { seen.push(row.fetchExtra()); } },
       });
+
       const db = defineModels({ Owner });
 
       for (const modelClass of [Owner.modelClass, db.Owner.modelClass, Owner.bindKnex(knex).modelClass]) {
@@ -244,6 +246,7 @@ describe('features', () => {
         expect(modelClass.softDelete()).to.be('deleted');
         expect(modelClass.fromJson({ name: 'A' }).fetchExtra()).to.be('extra A');
       }
+
       await Owner.modelClass.query().insert({ name: 'B' });
       expect(seen).to.eql(['extra B']);
       const [owner] = await Owner.modelClass.query();
