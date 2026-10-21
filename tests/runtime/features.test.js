@@ -386,6 +386,12 @@ describe('features', () => {
         rejects(statics, 'defineModel(Pets): `statics` must be a plain object');
       }
 
+      // Symbol keys aren't set (ModelStatics rejects them too).
+      rejects(
+        { deleteType: 'soft', [Symbol('softDelete')]: true },
+        'defineModel(Pets): `statics[Symbol(softDelete)]`: statics need string keys',
+      );
+
       expect(() => defineModel({ table: 'pet_owners', columns: ownerColumns(), statics: { name: 'x' } }))
         .to
         .throwError(/^defineModel\(PetOwners\): `statics.name`/);
@@ -417,10 +423,11 @@ describe('features', () => {
           rejected = true;
         }
 
-        if (rejected) {
-          expect([key, typed.get(key)]).to.eql([key, 'rejected']);
-        }
-        else if (key in Model && !(key in Object.prototype)) {
+        // Both ways: rejected by one exactly when rejected by the other, and a static of
+        // objection's that's accepted is typed.
+        expect([key, typed.get(key) === 'rejected']).to.eql([key, rejected]);
+
+        if (!rejected && key in Model && !(key in Object.prototype)) {
           expect([key, typed.get(key)]).to.eql([key, 'known']);
         }
       }

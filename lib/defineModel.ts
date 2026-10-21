@@ -242,6 +242,13 @@ function checkStatics(className: string, statics: unknown): Readonly<Record<stri
   // SAFETY: a plain object, checked just above.
   const values = statics as Readonly<Record<string, unknown>>;
 
+  // `Object.keys` below (and in the define loop) skips symbols, so they'd be typed but not set.
+  const [symbol] = Object.getOwnPropertySymbols(values);
+
+  if (symbol !== undefined) {
+    throw new Error(`defineModel(${className}): \`statics[${String(symbol)}]\`: statics need string keys`);
+  }
+
   for (const key of Object.keys(values)) {
     const reserved = RESERVED_STATICS.get(key);
 

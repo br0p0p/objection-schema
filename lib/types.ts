@@ -1014,7 +1014,9 @@ export type ModelStatics = {
 }
 & Partial<Pick<typeof Model, Extract<KnownStatics, keyof typeof Model>>>
 & Partial<UndeclaredKnownStatics>
-& { readonly [key: string]: unknown };
+& { readonly [key: string]: unknown }
+// `defineModel` throws on symbol keys: statics are named, like objection's.
+& { readonly [key: symbol]: never };
 
 /** For lib/: `statics`' constraint. A static the base declares keeps its type. */
 export type StaticsFor<B extends ModelConstructor<Model>> = ModelStatics

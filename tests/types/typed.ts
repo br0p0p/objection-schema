@@ -1086,3 +1086,12 @@ const appStatics = { deleteType: 'soft', virtualAttributes: ['fullName'] } satis
 
 // @ts-expect-error reserved in the public type too
 const badStatics: ModelStatics = { tableName: 'x' };
+
+// Symbol keys aren't set at runtime, so they're rejected.
+const softDelete = Symbol('softDelete');
+
+// @ts-expect-error statics need string keys
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { [softDelete]: true } });
+
+// @ts-expect-error in the public type too
+const symbolStatics: ModelStatics = { [softDelete]: true };

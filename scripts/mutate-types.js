@@ -226,6 +226,12 @@ const mutants = [
   ],
   [D, `  ? { -readonly [K in keyof S]: S[K] }`, `  ? S`, 'statics on modelClass are readonly'],
   [
+    D,
+    `& { readonly [key: symbol]: never };`,
+    `& { readonly [key: symbol]: unknown };`,
+    'statics accepts symbol keys, which defineModel doesn\'t set',
+  ],
+  [
     'lib/defineModel.ts',
     `  const S extends StaticsFor<B> = {},`,
     `  S extends StaticsFor<B> = {},`,

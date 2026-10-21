@@ -229,6 +229,7 @@ Pet.modelClass.deleteType; // 'soft', also on db.Pet.modelClass and Pet.bindKnex
   `prototype`, `columnNameMappers` (see [Known limitations](#known-limitations)), and objection's
   other statics, e.g. `query`, `knex`, `fromJson` and the static query hooks
   (`static beforeInsert`, …), which would replace objection's or the base's: put those on a `base`.
+  Symbol keys are rejected too: statics need string keys.
 - **`jsonSchema`** doesn't validate (the column schemas do), but with
   `pickJsonSchemaProperties: true` objection keeps only the `jsonSchema` properties when it writes
   rows, so columns missing from a legacy schema would be dropped from inserts and updates.
