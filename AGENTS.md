@@ -117,7 +117,9 @@ catches each one is named here.
    are pinned through the exported `RelationErrors` type. Change them on purpose only, and update
    the tests.
 8. **Rows read from the database are not validated.** This is by design (see README, "Known
-   limitations"), so don't "fix" it.
+   limitations"), so don't "fix" it. Column codecs (`.codec()`) _convert_ reads in
+   `$parseDatabaseJson`, but they don't validate them: schemas still never run on rows read from
+   the database.
 
 ## Making a change
 

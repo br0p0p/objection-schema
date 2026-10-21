@@ -4,7 +4,7 @@
 // relation options, composite keys, classic model handles, error paths and handle methods.
 
 const expect = require('expect.js');
-const { Model, ValidationError, raw } = require('objection');
+const { Model, ValidationError, raw, ref, snakeCaseMappers } = require('objection');
 
 const {
   defineModel,
@@ -18,7 +18,7 @@ const {
 
 const v = require('valibot');
 const { z } = require('zod');
-const { connect } = require('./db');
+const { client, connect } = require('./db');
 
 describe('features', () => {
   let knex;
@@ -58,13 +58,33 @@ describe('features', () => {
       .createTable('owner_films', (t) => {
         t.integer('ownerId');
         t.integer('filmId');
+      })
+      .createTable('invoices', (t) => {
+        t.increments('id');
+        t.integer('ownerId');
+        t.string('total');
+        t.text('meta');
+        t.string('note');
+      })
+      .createTable('ledgers', (t) => {
+        t.increments('id');
+        t.string('total_due');
       });
   });
 
   after(() => knex.destroy());
 
   beforeEach(async () => {
-    for (const table of ['owners', 'pets', 'accounts', 'memberships', 'films', 'owner_films']) {
+    for (const table of [
+      'owners',
+      'pets',
+      'accounts',
+      'memberships',
+      'films',
+      'owner_films',
+      'invoices',
+      'ledgers',
+    ]) {
       await knex(table).delete();
     }
   });
@@ -682,6 +702,326 @@ describe('features', () => {
           relations(own, r => ({ x: r.hasMany(Classic, { from: 'id', to: 'id' }) })),
         ]),
       ).to.throwError(/points to a model that isn't part of this registry \(Classic\)/);
+    });
+  });
+
+  describe('codecs', () => {
+    // A value type the database can't store. The codec converts it to and from a string, and
+    // throws on `null` / `undefined`, so a codec that runs where it shouldn't fails the test.
+    class Cents {
+      constructor(amount) {
+        this.amount = amount;
+      }
+    }
+
+    const cents = {
+      fromDatabase: value => new Cents(Number(value)),
+      toDatabase: value => String(value.amount),
+    };
+
+    const Owner = () => defineModel({ table: 'owners', columns: ownerColumns() });
+
+    const Invoice = (options = {}) =>
+      defineModel(
+        Object.assign(
+          {
+            table: 'invoices',
+            columns: {
+              id: column(z.number()).generated(),
+              ownerId: column(z.number().nullable().optional()).references('Owner', 'id', {
+                inverse: 'invoices',
+              }),
+              total: column(z.instanceof(Cents).nullable().optional()).codec(cents),
+              note: z.string().optional(),
+            },
+          },
+          options,
+        ),
+      );
+
+    const registry = () => defineModels({ Owner: Owner(), Invoice: Invoice() });
+
+    const stored = async id => (await knex('invoices').where('id', id))[0];
+
+    it('decodes rows read with query(), findById, first and withGraphFetched', async () => {
+      const db = registry();
+      const owner = await db.Owner.query().insert({ name: 'A' });
+      await knex('invoices').insert({ ownerId: owner.id, total: '150', note: 'n' });
+      const { id: invoiceId } = await knex('invoices').first('id');
+
+      const reads = [
+        (await db.Invoice.query())[0],
+        await db.Invoice.query().findById(invoiceId),
+        await db.Invoice.query().first(),
+        (await db.Owner.query().withGraphFetched('invoices').first()).invoices[0],
+        (await db.Invoice.query().withGraphFetched('owner').first()),
+      ];
+
+      for (const row of reads) {
+        expect(row.total).to.be.a(Cents);
+        expect(row.total.amount).to.be(150);
+      }
+
+      expect(reads[4].owner.name).to.be('A');
+
+      // MySQL has no `returning`.
+      if (client !== 'mysql') {
+        const returned = await db.Invoice.query().insert({ total: new Cents(2) }).returning('*');
+        expect(returned.total).to.eql(new Cents(2));
+      }
+    });
+
+    it('encodes values written with insert, patch, update and upsertGraph', async () => {
+      const db = registry();
+      const owner = await db.Owner.query().insert({ name: 'A' });
+
+      const inserted = await db.Invoice.query().insert({ ownerId: owner.id, total: new Cents(5) });
+      expect((await stored(inserted.id)).total).to.be('5');
+      // The model keeps the app value it was given.
+      expect(inserted.total).to.be.a(Cents);
+
+      const fetched = await db.Invoice.query().insertAndFetch({ total: new Cents(6) });
+      expect(fetched.total).to.eql(new Cents(6));
+      expect((await stored(fetched.id)).total).to.be('6');
+
+      // A patch only encodes the keys it's given: `total` is absent here.
+      await db.Invoice.query().findById(inserted.id).patch({ note: 'patched' });
+      expect(await stored(inserted.id)).to.have.property('total', '5');
+
+      const patched = await db.Invoice.query().patchAndFetchById(inserted.id, {
+        total: new Cents(7),
+      });
+
+      expect(patched.total).to.eql(new Cents(7));
+      expect((await stored(inserted.id)).total).to.be('7');
+
+      await db.Invoice.query()
+        .findById(inserted.id)
+        .update({ ownerId: owner.id, total: new Cents(8) });
+      expect((await stored(inserted.id)).total).to.be('8');
+
+      await db.Owner.query().upsertGraph({
+        id: owner.id,
+        name: 'A',
+        invoices: [{ id: inserted.id, total: new Cents(9) }],
+      });
+      expect((await stored(inserted.id)).total).to.be('9');
+    });
+
+    it('an upsertGraph without changes writes nothing', async () => {
+      const db = registry();
+
+      const owner = await db.Owner.query().insertGraph({
+        name: 'A',
+        invoices: [{ total: new Cents(1) }],
+      });
+
+      const queries = [];
+      const onQuery = query => queries.push(query.sql);
+      knex.on('query', onQuery);
+
+      try {
+        await db.Owner.query().upsertGraph({
+          id: owner.id,
+          name: 'A',
+          invoices: [{ id: owner.invoices[0].id, total: new Cents(1) }],
+        });
+      }
+      finally {
+        knex.removeListener('query', onQuery);
+      }
+
+      expect(queries.filter(sql => /^update/i.test(sql))).to.eql([]);
+    });
+
+    it('passes null through and skips missing values, both ways', async () => {
+      const db = registry();
+      const { id } = await db.Invoice.query().insert({ total: null, note: 'n' });
+
+      expect((await stored(id)).total).to.be(null);
+      expect((await db.Invoice.query().findById(id)).total).to.be(null);
+
+      const [selected] = await db.Invoice.query().select('id', 'note');
+      expect(Object.keys(selected).sort()).to.eql(['id', 'note']);
+    });
+
+    it('gets the raw input when validation is skipped', async () => {
+      const seen = [];
+
+      const Unvalidated = defineModel({
+        table: 'invoices',
+        validate: false,
+        columns: {
+          id: column(z.number()).generated(),
+          total: column(z.instanceof(Cents).nullable()).codec({
+            fromDatabase: cents.fromDatabase,
+            toDatabase: (value) => {
+              seen.push(value);
+
+              return String(value);
+            },
+          }),
+        },
+      });
+
+      const { id } = await Unvalidated.query().insert({ total: '12' });
+      expect(seen).to.eql(['12']);
+      expect((await stored(id)).total).to.be('12');
+    });
+
+    it('composes with .json(): encode, then stringify; parse, then decode', async () => {
+      const Tagged = defineModel({
+        table: 'invoices',
+        columns: {
+          id: column(z.number()).generated(),
+          meta: column(z.instanceof(Map).optional())
+            .json()
+            .codec({
+              fromDatabase: object => new Map(Object.entries(object)),
+              toDatabase: map => Object.fromEntries(map),
+            }),
+          // A codec that returns a string on a JSON column: the string goes through objection's
+          // JSON handling too (objection >= 3.1 stores it as a JSON string, 3.0 as it is).
+          note: column(z.array(z.string()).optional())
+            .json()
+            .codec({ fromDatabase: text => text.split(','), toDatabase: tags => tags.join(',') }),
+        },
+      });
+
+      const { id } = await Tagged.query().insert({ meta: new Map([['a', 1]]), note: ['x', 'y'] });
+
+      expect(await stored(id)).to.have.property('meta', '{"a":1}');
+
+      // The same as a `.json()` column given that string, without a codec.
+      const PlainJson = defineModel({
+        table: 'invoices',
+        columns: { id: column(z.number()).generated(), note: column(z.string()).json() },
+      });
+
+      const plain = await PlainJson.query().insert({ note: 'x,y' });
+      expect((await stored(id)).note).to.be((await stored(plain.id)).note);
+      expect((await stored(id)).note).not.to.be(undefined);
+
+      const read = await Tagged.query().findById(id);
+      expect(read.meta).to.be.a(Map);
+      expect([...read.meta]).to.eql([['a', 1]]);
+      expect(read.note).to.eql(['x', 'y']);
+    });
+
+    it('decodes after the column name mappers, and encodes before them', async () => {
+      class SnakeCase extends Model {
+        static columnNameMappers = snakeCaseMappers();
+      }
+
+      const Ledger = defineModel({
+        table: 'ledgers',
+        base: SnakeCase,
+        columns: {
+          id: column(z.number()).generated(),
+          totalDue: column(z.instanceof(Cents)).codec(cents),
+        },
+      });
+
+      const { id } = await Ledger.query().insert({ totalDue: new Cents(3) });
+      expect((await knex('ledgers').where('id', id))[0]).to.have.property('total_due', '3');
+      expect((await Ledger.query().findById(id)).totalDue).to.eql(new Cents(3));
+    });
+
+    it('runs a base\'s own $parseDatabaseJson first and its $formatDatabaseJson last', async () => {
+      const seen = [];
+
+      class Base extends Model {
+        $parseDatabaseJson(json) {
+          json = super.$parseDatabaseJson(json);
+          seen.push(['parse', json.total]);
+
+          return json;
+        }
+
+        $formatDatabaseJson(json) {
+          seen.push(['format', json.total]);
+
+          return super.$formatDatabaseJson(json);
+        }
+      }
+
+      const db = defineModels({ Owner: Owner(), Invoice: Invoice({ base: Base }) });
+      const { id } = await db.Invoice.query().insert({ total: new Cents(5) });
+      const read = await db.Invoice.query().findById(id);
+
+      expect(read.total).to.eql(new Cents(5));
+      expect(seen.filter(([, total]) => total !== undefined)).to.eql([
+        ['format', '5'],
+        ['parse', '5'],
+      ]);
+    });
+
+    it('leaves query values (raw, ref, subqueries) to objection', async () => {
+      const Hooked = Invoice({
+        hooks: {
+          beforeUpdate: (row) => {
+            row.total = raw('?', ['42']);
+          },
+        },
+      });
+
+      const { id } = await Hooked.query().insert({ total: new Cents(1) });
+      await Hooked.query().findById(id).patch({ note: 'n' });
+      expect((await stored(id)).total).to.be('42');
+
+      const Plain = Owner();
+
+      const values = [
+        knex.raw('?', ['1']),
+        knex('owners').select('id'),
+        Plain.query().select('id'),
+        ref('note'),
+      ];
+
+      for (const value of values) {
+        expect(new Hooked.modelClass().$formatDatabaseJson({ total: value }).total).to.be(value);
+      }
+    });
+
+    it('a model without codecs keeps objection\'s own methods', () => {
+      const Plain = Owner();
+      expect(Plain.modelClass.prototype.$parseDatabaseJson).to.be(Model.prototype.$parseDatabaseJson);
+      expect(Plain.modelClass.prototype.$formatDatabaseJson).to.be(
+        Model.prototype.$formatDatabaseJson,
+      );
+
+      const proto = Invoice().modelClass.prototype;
+      expect(Object.hasOwn(proto, '$parseDatabaseJson')).to.be(true);
+      expect(Object.hasOwn(proto, '$formatDatabaseJson')).to.be(true);
+    });
+
+    it('rejects codecs that aren\'t two functions, and codecs on key columns', () => {
+      const fn = () => null;
+      const notFunctions = /^column\.codec\(\): fromDatabase and toDatabase must be functions$/;
+
+      expect(() => column(z.number()).codec()).to.throwError(notFunctions);
+      expect(() => column(z.number()).codec({ fromDatabase: fn })).to.throwError(notFunctions);
+      expect(() => column(z.number()).codec({ toDatabase: fn })).to.throwError(notFunctions);
+
+      expect(() => column(z.number()).references('Owner', 'id').codec(cents)).to.throwError(
+        /^column\.codec\(\): a references\(\) column can't have a codec, relation queries use its values as they are$/,
+      );
+      expect(() => column(z.number()).codec(cents).references('Owner', 'id')).to.throwError(
+        /^references\(\): a column with a codec can't be a foreign key, relation queries use its values as they are$/,
+      );
+
+      expect(() =>
+        defineModel({ table: 'invoices', columns: { id: column(z.number()).codec(cents) } }),
+      ).to.throwError(
+        /^defineModel\(Invoices\): id column "id" can't have a codec, relation queries and findById use its values as they are$/,
+      );
+      expect(() =>
+        defineModel({
+          table: 'invoices',
+          id: ['id', 'note'],
+          columns: { id: z.number(), note: column(z.string()).codec(cents) },
+        }),
+      ).to.throwError(/^defineModel\(Invoices\): id column "note" can't have a codec/);
     });
   });
 

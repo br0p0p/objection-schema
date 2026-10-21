@@ -1,7 +1,16 @@
 // Type tests for the schema-first `defineModel` / `defineModels` API.
 // Compiled by `pnpm run test:types`. Nothing here is executed.
 
-import type { Insert, Patch, RelationErrors, Result, Row, RowWithGraph } from 'objection-schema';
+import type {
+  ColumnCodec,
+  Insert,
+  Patch,
+  RelationErrors,
+  Result,
+  Row,
+  RowWithGraph,
+  ValueExpression,
+} from 'objection-schema';
 import { Model, raw, ref } from 'objection';
 import {
   column,
@@ -725,3 +734,122 @@ conduit.Favorite.query().findById(1);
 conduit.Favorite.query().findById(['ann', 2]);
 
 toQueryBuilder(conduit.Article.query()).select(toQueryBuilder(conduit.Article.relatedQuery('favoritedBy')).count().as('favoritesCount'));
+
+// ---------------------------------------------------------------------------
+// Column codecs
+// ---------------------------------------------------------------------------
+
+declare class Decimal {
+  private readonly brand: 'Decimal';
+  constructor(value: string);
+  toFixed(digits: number): string;
+}
+
+// A shared codec, typed with the public `ColumnCodec`.
+const decimalCodec: ColumnCodec<Decimal, string> = {
+  fromDatabase: value => new Decimal(value),
+  toDatabase: value => value.toFixed(2),
+};
+
+const CodecOwner = defineModel({
+  table: 'codec_owners',
+  columns: { id: column(z.number()).generated(), name: z.string() },
+});
+
+const CodecInvoice = defineModel({
+  table: 'codec_invoices',
+  columns: {
+    id: column(z.number()).generated(),
+    ownerId: column(z.number()).references('Owner', 'id', { inverse: 'invoices' }),
+    total: column(z.instanceof(Decimal)).codec(decimalCodec),
+    // The codec never sees null or undefined: its types are the non-null ones.
+    paid: column(z.instanceof(Decimal).nullable().optional())
+      .hasDefault()
+      .codec({ fromDatabase: (value: string) => new Decimal(value), toDatabase: value => value.toFixed(2) }),
+    issuedOn: column(z.date()).codec({ fromDatabase: (value: number) => new Date(value), toDatabase: date => date.getTime() }),
+    // On a `.json()` column the database type is the JSON value, and other modifiers keep the codec.
+    tags: column(z.array(z.string())).json().codec({ fromDatabase: (text: string) => text.split(','), toDatabase: tags => tags.join(',') }).hasDefault(),
+    note: z.string(),
+  },
+});
+
+const codecDb = defineModels({ Owner: CodecOwner, Invoice: CodecInvoice });
+
+type InvoiceRow = Row<typeof codecDb.Invoice>;
+
+// Row, insert and patch types are the schemas' types: the codec doesn't change them.
+expectType<
+  Equal<
+    InvoiceRow,
+    {
+      id: number;
+      ownerId: number;
+      total: Decimal;
+      paid: Decimal | null | undefined;
+      issuedOn: Date;
+      tags: string[];
+      note: string;
+    }
+  >
+>();
+
+expectType<Equal<Insert<typeof codecDb.Invoice>['total'], Decimal | ValueExpression>>();
+
+expectType<Equal<Patch<typeof codecDb.Invoice>['issuedOn'], Date | ValueExpression | undefined>>();
+
+async function codecQueries(decimal: Decimal) {
+  // Query values don't go through the codec, so they're in the database type.
+  codecDb.Invoice.query().where('total', '1.00').where('total', '>', '0.50').where({ total: '1.00' });
+  codecDb.Invoice.query().whereIn('issuedOn', [1, 2]).whereBetween('issuedOn', [1, 2]);
+  codecDb.Invoice.query().where('paid', null).where('codec_invoices.total', '1.00');
+  codecDb.Invoice.query().where('tags', 'a,b').where('note', 'x');
+  // @ts-expect-error a codec column's query values are database values
+  codecDb.Invoice.query().where('total', decimal);
+  // @ts-expect-error a codec column's query values are database values (operator form)
+  codecDb.Invoice.query().where('issuedOn', '>', new Date());
+  // @ts-expect-error a codec column's query values are database values (whereIn)
+  codecDb.Invoice.query().whereIn('total', [decimal]);
+  // @ts-expect-error a codec column's query values are database values (object form)
+  codecDb.Invoice.query().where({ total: decimal });
+
+  // Selected columns are decoded, an alias isn't (the codec only knows the property name).
+  const selected = await codecDb.Invoice.query().select('total', 'issuedOn as day');
+  expectType<Equal<typeof selected, { total: Decimal; day: number }[]>>();
+
+  // Joined columns are read as the database returns them, and queried that way.
+  const joined = await codecDb.Owner.query()
+    .joinRelated('invoices')
+    .where('invoices.total', '1.00')
+    .select('invoices.total');
+
+  expectType<Equal<typeof joined, { total: string }[]>>();
+  // @ts-expect-error joined codec columns take database values
+  codecDb.Owner.query().joinRelated('invoices').where('invoices.total', decimal);
+
+  const [owner] = await codecDb.Owner.query().withGraphFetched('invoices');
+  expectType<Equal<typeof owner.invoices, InvoiceRow[]>>();
+}
+
+// @ts-expect-error fromDatabase must return the schema's output
+column(z.instanceof(Decimal)).codec({ fromDatabase: (value: string) => value, toDatabase: value => value.toFixed(2) });
+
+// @ts-expect-error toDatabase must take the schema's output
+column(z.instanceof(Decimal)).codec({ fromDatabase: (value: string) => new Decimal(value), toDatabase: (value: string) => value });
+
+// @ts-expect-error toDatabase must take every output value, not some (property syntax, not bivariant methods)
+column(z.union([z.string(), z.number()])).codec({ fromDatabase: (value: string) => value, toDatabase: (value: string) => value });
+
+// @ts-expect-error column.codec(): a references() column can't have a codec
+column(z.number()).references('Owner', 'id').codec({ fromDatabase: (value: string) => Number(value), toDatabase: String });
+
+// @ts-expect-error references(): a column with a codec can't be a foreign key
+column(z.number()).codec({ fromDatabase: (value: string) => Number(value), toDatabase: String }).references('Owner', 'id');
+
+// @ts-expect-error defineModel: id column "id" can't have a codec
+defineModel({ table: 't', columns: { id: column(z.number()).codec({ fromDatabase: (value: string) => Number(value), toDatabase: String }) } });
+
+// @ts-expect-error defineModel: id column "code" can't have a codec (composite id)
+defineModel({ table: 't', id: ['id', 'code'], columns: { id: z.number(), code: column(z.number()).codec({ fromDatabase: (value: string) => Number(value), toDatabase: String }) } });
+
+// The id can be another column than a codec one.
+defineModel({ table: 't', id: 'code', columns: { code: z.string(), total: column(z.instanceof(Decimal)).codec(decimalCodec) } });

@@ -60,7 +60,58 @@ async function createTables(knex) {
       t.bigInteger('orderId').unsigned().notNullable().references('orders.id');
       t.bigInteger('productId').unsigned().notNullable().references('products.id');
       t.integer('quantity');
+    })
+    .createTable('payments', (t) => {
+      t.bigIncrements('id');
+      t.decimal('amount', 14, 4).notNullable();
+      t.bigInteger('views');
+      t.timestamp('paidAt').nullable();
     });
+}
+
+// An exact decimal type, like BigNumber or Decimal.js: 4 decimal places, as a scaled bigint.
+class Decimal {
+  constructor(units) {
+    this.units = units;
+  }
+
+  static parse(text) {
+    const [whole, fraction = ''] = String(text).split('.');
+
+    return new Decimal(BigInt(whole + fraction.padEnd(4, '0').slice(0, 4)));
+  }
+
+  toFixed() {
+    const digits = this.units.toString().padStart(5, '0');
+
+    return `${digits.slice(0, -4)}.${digits.slice(-4)}`;
+  }
+}
+
+// Codecs for what the databases return: decimals as strings (numbers on sqlite), bigints as
+// strings or numbers, and timestamps as Dates, except on sqlite, which stores what it's given.
+function makePayments() {
+  return defineModel({
+    table: 'payments',
+    columns: {
+      id: column(z.number().int()).generated(),
+      amount: column(z.instanceof(Decimal)).codec({
+        fromDatabase: value => Decimal.parse(value),
+        toDatabase: value => value.toFixed(),
+      }),
+      views: column(z.bigint().nullable().optional()).codec({
+        fromDatabase: value => BigInt(value),
+        toDatabase: value => value.toString(),
+      }),
+      paidAt:
+        client === 'sqlite'
+          ? column(z.date().nullable().optional()).codec({
+              fromDatabase: value => new Date(value),
+              toDatabase: value => value.toISOString(),
+            })
+          : z.date().nullable().optional(),
+    },
+  });
 }
 
 function makeModels(id = () => z.number().int()) {
@@ -130,7 +181,7 @@ describe(`databases (${client})`, () => {
   after(() => knex.destroy());
 
   beforeEach(async () => {
-    for (const table of ['orders_products', 'products', 'orders', 'customers']) {
+    for (const table of ['orders_products', 'products', 'orders', 'customers', 'payments']) {
       await knex(table).delete();
     }
   });
@@ -238,6 +289,33 @@ describe(`databases (${client})`, () => {
     expect(read.createdAt).to.be.a(Date);
   });
 
+  it('codecs read decimals, bigints and timestamps as the app types', async () => {
+    const Payment = makePayments();
+    const paidAt = new Date('2024-01-02T03:04:05.000Z');
+
+    const { id } = await Payment.query().insert({
+      amount: Decimal.parse('12345678.1234'),
+      views: 42n,
+      paidAt,
+    });
+
+    const read = await Payment.query().findById(id);
+    expect(read.amount).to.be.a(Decimal);
+    expect(read.amount.toFixed()).to.be('12345678.1234');
+    expect(read.views).to.be(42n);
+    expect(read.paidAt).to.be.a(Date);
+    expect(read.paidAt.getTime()).to.be(paidAt.getTime());
+
+    // Query values don't go through the codecs: they're database values.
+    const found = await Payment.query().where('amount', '12345678.1234').where('views', '>', 41);
+    expect(found.map(it => it.id)).to.eql([id]);
+
+    const empty = await Payment.query().insertAndFetch({ amount: Decimal.parse('0') });
+    expect(empty.amount.toFixed()).to.be('0.0000');
+    expect(empty.views).to.be(null);
+    expect(empty.paidAt).to.be(null);
+  });
+
   only('pg')('round-trips text[] arrays', async () => {
     const { id } = await db.Customer.query().insert({ name: 'Ann', tags: ['a', 'b'] });
     expect((await db.Customer.query().findById(id)).tags).to.eql(['a', 'b']);
@@ -278,6 +356,15 @@ describe(`databases (${client})`, () => {
 
       expect(error).to.be.a(ValidationError);
       expect(error.message).to.match(/orders\[0\]\.customerId: .*expected number, received string/);
+    });
+
+    it('a bigint codec keeps values beyond Number.MAX_SAFE_INTEGER', async () => {
+      const { id } = await makePayments()
+        .query(rawKnex)
+        .insert({ amount: Decimal.parse('1'), views: 9007199254740993n });
+
+      const read = await makePayments().query(rawKnex).findById(id);
+      expect(read.views).to.be(9007199254740993n);
     });
 
     it('works with z.coerce.number() ids, the other documented fix', async () => {

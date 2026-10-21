@@ -132,6 +132,51 @@ const mutants = [
     `findById(id: IdValue<R_<S>, K_<S>>): Query<ContainerState<S, 'single'>>;`,
     'findById() result is never undefined',
   ],
+  [
+    D,
+    `      ? DbOf<R_<S>, K_<S>>[C & keyof DbOf<R_<S>, K_<S>>]\n      : DbOf<R_<S>, K_<S>>[P & keyof DbOf<R_<S>, K_<S>>];`,
+    `      ? RowOf<R_<S>, K_<S>>[C & keyof RowOf<R_<S>, K_<S>>]\n      : RowOf<R_<S>, K_<S>>[P & keyof RowOf<R_<S>, K_<S>>];`,
+    'where() takes app values for codec columns',
+  ],
+  [D, `  ? Db | Extract<ColOut<C>, null | undefined>`, `  ? Db`, 'nullable codec columns can\'t be queried with null'],
+  [
+    D,
+    `]: DbOf<\n          R,\n          TargetOf<R, K, P>\n        >[C & keyof DbOf<R, TargetOf<R, K, P>>];`,
+    `]: RowOf<\n          R,\n          TargetOf<R, K, P>\n        >[C & keyof RowOf<R, TargetOf<R, K, P>>];`,
+    'joined codec columns are typed as decoded',
+  ],
+  [
+    D,
+    `        ? SelectedValue<S, Trim<Ref>>\n        : ColumnValue<S, Trim<Ref>>;`,
+    `        ? SelectedValue<S, Trim<Ref>>\n        : SelectedValue<S, Trim<Ref>>;`,
+    'aliased codec columns are typed as decoded',
+  ],
+  [
+    D,
+    `      ? ColumnCodec<NonNullable<StandardSchemaV1.InferOutput<S>>, Db>\n      : ColumnError`,
+    `      ? ColumnCodec<any, Db>\n      : ColumnError`,
+    'codecs are unchecked against the schema',
+  ],
+  [
+    D,
+    `      ? ColumnCodec<NonNullable<StandardSchemaV1.InferOutput<S>>, Db>\n      : ColumnError`,
+    `      ? ColumnCodec<StandardSchemaV1.InferOutput<S>, Db>\n      : ColumnError`,
+    'codecs are typed to get null and undefined',
+  ],
+  [
+    D,
+    `  readonly toDatabase: (value: Out) => Db;`,
+    `  toDatabase(value: Out): Db;`,
+    'toDatabase is a bivariant method',
+  ],
+  [D, `    codec: R extends null\n`, `    codec: null extends null\n`, 'codec() on a references() column is allowed'],
+  [D, `    target: X extends null\n`, `    target: null extends null\n`, 'references() on a codec column is allowed'],
+  [
+    D,
+    `  = IsNever<IdKeys<Id> & CodecKeys<C>> extends true\n`,
+    `  = true extends true\n`,
+    'codecs on id columns are allowed',
+  ],
   ['lib/index.mts', `export type * from './index.js';`, ``, 'ESM entry exports no types'],
 ];
 
