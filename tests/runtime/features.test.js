@@ -1037,6 +1037,72 @@ describe('features', () => {
       it(`rejects ${label}`, () => expect(fn).to.throwError(pattern));
     }
 
+    describe('relations of joined models', () => {
+      const models = (base = Model) => {
+        const crew = defineModel({
+          table: 'crew',
+          id: 'crewId',
+          columnNames: 'snake_case',
+          columns: {
+            ...crewColumns(),
+            ownerId: column(z.number().nullable().optional())
+              .name('owner_ref')
+              .references('Owner', 'id', { inverse: 'crew' }),
+          },
+        });
+
+        const owner = defineModel({ table: 'owners', base, columns: ownerColumns() });
+
+        return { crew, owner };
+      };
+
+      it('maps joined names once the registry is set up, without reading relations earlier', () => {
+        const { crew, owner } = models();
+
+        // Before defineModels the relations don't exist yet: the reference passes through,
+        // and objection doesn't cache an empty set of relations.
+        expect(sql(owner.query().where('crew.fullName', 'x'))).to.contain('where crew.fullName = \'x\'');
+
+        const db = defineModels({ Crew: crew, Owner: owner });
+        // A bound class asks the definition it's bound from.
+        const bound = db.Owner.bindKnex(knex);
+
+        expect(db.Owner.modelClass.getRelationNames()).to.eql(['crew']);
+        expect(sql(db.Owner.query().joinRelated('crew').where('crew.fullName', 'x'))).to.contain(
+          'inner join crew on crew.owner_ref = owners.id where crew.full_name = \'x\'',
+        );
+        expect(sql(bound.query().joinRelated('crew').where('crew.fullName', 'x'))).to.contain(
+          'where crew.full_name = \'x\'',
+        );
+        expect(sql(db.Crew.query().joinRelated('owner.crew').where('owner:crew.fullName', 'x'))).to.contain(
+          'where owner:crew.full_name = \'x\'',
+        );
+      });
+
+      it('doesn\'t read the relations of a base before the registry replaces them', () => {
+        class Base extends Model {
+          static relationMappings = () => ({
+            legacy: {
+              relation: Model.HasManyRelation,
+              modelClass: Base,
+              join: { from: 'owners.id', to: 'owners.id' },
+            },
+          });
+        }
+
+        const { crew, owner } = models(Base);
+
+        expect(sql(owner.query().where('crew.fullName', 'x'))).to.contain('where crew.fullName = \'x\'');
+        expect(sql(owner.query().where('legacy.fullName', 'x'))).to.contain('where legacy.fullName = \'x\'');
+
+        const db = defineModels({ Crew: crew, Owner: owner });
+        expect(db.Owner.modelClass.getRelationNames()).to.eql(['crew']);
+        expect(sql(db.Owner.query().joinRelated('crew').where('crew.fullName', 'x'))).to.contain(
+          'where crew.full_name = \'x\'',
+        );
+      });
+    });
+
     it('returns a new column from .name()', () => {
       const plain = column(z.string());
       const named = plain.name('x');

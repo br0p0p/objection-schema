@@ -35,6 +35,9 @@ type Method = (this: Builder, ...args: QueryArgument[]) => object;
  */
 export const COLUMN_MAP = Symbol('objection-schema columnMap');
 
+// The model classes whose registry is complete.
+const inRegistry = new WeakSet<object>();
+
 // The same conversion as `knexSnakeCaseMappers()`, with objection's default options.
 const snakeCase = snakeCaseMappers();
 
@@ -170,7 +173,7 @@ export function createQueryBuilder(Base: typeof QueryBuilder): typeof QueryBuild
 
   for (const name of EVERY_ARGUMENT) {
     methods[name] = function (...args) {
-      return base[name].apply(this, args.map(arg => mapRefs(this, arg, true)));
+      return base[name].apply(this, args.map(arg => mapRefs(this, arg, name === 'select')));
     };
   }
 
@@ -231,6 +234,10 @@ function joinedModel(root: ModelClass, alias: string): ModelClass | null {
   let modelClass = root;
 
   for (const name of alias.split(':')) {
+    if (!relationsAreFinal(modelClass)) {
+      return null;
+    }
+
     const relations = modelClass.getRelations();
 
     if (!Object.hasOwn(relations, name)) {
@@ -242,6 +249,31 @@ function joinedModel(root: ModelClass, alias: string): ModelClass | null {
   }
 
   return modelClass;
+}
+
+/**
+ * Whether a model's relations can be read. objection caches them on first read, so a
+ * definition's must not be read before `defineModels` has set them: it would keep none.
+ * Other classes keep the relations they're written with. `bindKnex()` subclasses ask the
+ * definition they're bound from.
+ */
+function relationsAreFinal(modelClass: ModelClass): boolean {
+  if (!(COLUMN_MAP in modelClass)) {
+    return true;
+  }
+
+  let definition: object = modelClass;
+
+  while (!Object.hasOwn(definition, COLUMN_MAP)) {
+    definition = Object.getPrototypeOf(definition);
+  }
+
+  return inRegistry.has(definition);
+}
+
+/** Records that `defineModels` has set up a definition's relations. */
+export function markInRegistry(modelClass: ModelClass): void {
+  inRegistry.add(modelClass);
 }
 
 function isPlainObject(value: QueryArgument): value is Pojo {

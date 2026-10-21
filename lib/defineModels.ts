@@ -14,6 +14,7 @@ import type {
   RelationsInput,
   RelationSpecs,
 } from './types';
+import { markInRegistry } from './columnNames';
 import { classicModelHandle, defineStatic, isModelHandle } from './defineModel';
 import {
   BelongsToOneRelation,
@@ -209,7 +210,10 @@ export function defineModels(
   // Only once the registry is complete, so that fixing an error and calling again works.
   // Classic classes are added too, but only definitions are checked.
   for (const key of Object.keys(registry.byKey)) {
-    registered.add(registry.byKey[key].modelClass);
+    const { modelClass } = registry.byKey[key];
+    registered.add(modelClass);
+    // Only read for definitions: classic classes keep their own relations anyway.
+    markInRegistry(modelClass);
   }
 
   return registry.handles;

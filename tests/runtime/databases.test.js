@@ -388,6 +388,32 @@ describe(`databases (${client})`, () => {
       const ann = await names.Member.query().insert({ fullName: 'Ann' }).returning('memberId', 'fullName');
       expect(ann.toJSON()).to.eql({ memberId: ann.memberId, fullName: 'Ann' });
       expect(ann.memberId).to.be.a('number');
+
+      const [bob] = await names.Member.query()
+        .insert([{ fullName: 'Bob' }])
+        .returning('members.memberId', 'members.fullName');
+
+      expect(bob.toJSON()).to.eql({ memberId: bob.memberId, fullName: 'Bob' });
+    });
+
+    only('sqlite', 'pg')('never aliases in returning() or groupBy()', () => {
+      const query = names.Team.query()
+        .joinRelated('members')
+        .groupBy('members.fullName', 'teams.teamName')
+        .toKnexQuery()
+        .toQuery()
+        .replace(/[`"]/g, '');
+
+      expect(query).to.contain('group by members.full_name, teams.teamName');
+
+      const patch = names.Team.query()
+        .patch({ teamName: 'x' })
+        .returning('teams.teamId', 'members.fullName')
+        .toKnexQuery()
+        .toQuery()
+        .replace(/[`"]/g, '');
+
+      expect(patch).to.contain('returning teams.teamId, members.full_name');
     });
 
     async function insertTeam() {
@@ -491,6 +517,23 @@ describe(`databases (${client})`, () => {
       expect(selection.toKnexQuery().toQuery().replace(/[`"]/g, '')).to.contain(
         'select teams.teamName, members.team_id as teamId, members.full_name as fullName, members.*, teamName from',
       );
+
+      // Only `select` aliases a renamed joined column; GROUP BY and RETURNING can't.
+      const grouped = await names.Team.query()
+        .joinRelated('members')
+        .select('members.fullName')
+        .groupBy('members.fullName')
+        .orderBy('members.fullName');
+
+      expect(grouped.map(it => it.toJSON())).to.eql([{ fullName: 'Ann' }, { fullName: 'Bob' }]);
+
+      const classic = await names.Member.query()
+        .joinRelated('badges.member')
+        .select('badges:member.fullName as holder')
+        .where('badges:member.memberId', ann.memberId)
+        .orderBy('badges.id');
+
+      expect(classic.map(it => it.toJSON())).to.eql([{ holder: 'Ann' }, { holder: 'Ann' }]);
 
       const leads = await names.Member.query()
         .joinRelated('team.lead')
