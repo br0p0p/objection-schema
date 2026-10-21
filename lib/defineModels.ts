@@ -1,5 +1,5 @@
 import type { Model, QueryBuilder, RelationMapping, RelationMappings, RelationType } from 'objection';
-import type { Reference } from './column';
+import type { Reference, RelationOptions } from './column';
 import type { RuntimeHandle } from './defineModel';
 import type { ModelClass } from './objection';
 import type {
@@ -31,11 +31,6 @@ interface Join {
   from: JoinColumns;
   to: JoinColumns;
   through?: { table: string; from: JoinColumns; to: JoinColumns; extra?: unknown };
-}
-
-interface RelationOptions {
-  modify?: RelationMapping<Model>['modify'];
-  beforeInsert?: RelationMapping<Model>['beforeInsert'];
 }
 
 /** What the relation builders return: a relation to a registry key. */
@@ -82,7 +77,7 @@ const registered = new WeakSet<ModelClass>();
 //
 // They can come from three places, which are merged here:
 //
-//   1. `column(schema).references('Person', 'id', { as, inverse })` foreign keys,
+//   1. `column(schema).references('Person', 'id', { as, inverse, modify })` foreign keys,
 //   2. `relations(Person, (r) => ({ ... }))` declarations, passed in an array,
 //   3. a `{ Person: (r) => ({ ... }) }` object keyed by registry name.
 //
@@ -372,7 +367,7 @@ function addReferenceRelations(
   add(
     ownerKey,
     name,
-    spec(BelongsToOneRelation, ref.target, { from: prop, to: ref.column }),
+    spec(BelongsToOneRelation, ref.target, { from: prop, to: ref.column }, ref.options),
     source,
   );
 
@@ -381,7 +376,7 @@ function addReferenceRelations(
     add(
       ref.target,
       ref.inverse,
-      spec(relation, ownerKey, { from: ref.column, to: prop }),
+      spec(relation, ownerKey, { from: ref.column, to: prop }, ref.inverseOptions),
       `${source} inverse`,
     );
   }

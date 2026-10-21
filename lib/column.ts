@@ -1,5 +1,6 @@
+import type { Model, RelationMapping } from 'objection';
 import type { ValidatedColumn } from './StandardSchemaValidator';
-import type { Column, DefaultFlags, ReferenceOptions, StandardSchemaV1 } from './types';
+import type { Column, DefaultFlags, StandardSchemaV1 } from './types';
 import { isStandardSchema, validateSync } from './standardSchema';
 
 /** The metadata of a `column()` at runtime. */
@@ -10,13 +11,28 @@ export interface ColumnMeta {
   readonly references: Reference | null;
 }
 
+/** The `modify` and `beforeInsert` of a relation, from a builder or `references()`. */
+export interface RelationOptions {
+  modify?: RelationMapping<Model>['modify'];
+  beforeInsert?: RelationMapping<Model>['beforeInsert'];
+}
+
+/** `references()` options at runtime. `ReferenceOptions` is their typed view. */
+interface RuntimeReferenceOptions extends RelationOptions {
+  as?: string;
+  inverse?: string | (RelationOptions & { name: string; kind?: string });
+}
+
 /** A `references()` foreign key at runtime. */
 export interface Reference {
   readonly target: string;
   readonly column: string;
   readonly as: string | null;
+  readonly options: RelationOptions;
   readonly inverse: string | null;
   readonly inverseKind: 'many' | 'one';
+  /** Undefined for the string form of `inverse`, which has no options. */
+  readonly inverseOptions: RelationOptions | undefined;
 }
 
 /** A `column()` at runtime. `Column` is its typed view. */
@@ -26,7 +42,7 @@ export interface RuntimeColumn {
   generated: () => RuntimeColumn;
   hasDefault: () => RuntimeColumn;
   json: () => RuntimeColumn;
-  references: (target: string, column: string, options?: ReferenceOptions) => RuntimeColumn;
+  references: (target: string, column: string, options?: RuntimeReferenceOptions) => RuntimeColumn;
 }
 
 export interface NormalizedColumn extends ValidatedColumn {
@@ -74,7 +90,7 @@ function createColumn(
     json: () => with_({ json: true }),
     // A foreign key. `defineModels` derives a `belongsToOne` relation from it, and
     // an inverse relation on the target model when `inverse` is given.
-    references: (target: string, targetColumn: string, options: ReferenceOptions = {}) => {
+    references: (target: string, targetColumn: string, options: RuntimeReferenceOptions = {}) => {
       if (modelNames && !modelNames.includes(target)) {
         throw new Error(
           `references(): unknown model "${target}". Expected one of: ${modelNames.join(', ')}`,
@@ -86,31 +102,54 @@ function createColumn(
   });
 }
 
-function createReference(
-  target: unknown,
-  column: unknown,
-  { as = null, inverse = null }: { as?: string | null; inverse?: ReferenceOptions['inverse'] | null } = {},
-): Reference {
+const REFERENCE_OPTIONS: readonly string[] = ['as', 'inverse', 'modify', 'beforeInsert'];
+
+const INVERSE_OPTIONS: readonly string[] = ['name', 'kind', 'modify', 'beforeInsert'];
+
+function createReference(target: unknown, column: unknown, options: RuntimeReferenceOptions): Reference {
   if (typeof target !== 'string' || typeof column !== 'string') {
     throw new Error('references() expects a model name and a column name');
   }
 
+  // A typo would silently drop a filter, so unknown keys are errors (and type errors).
+  checkOptions(options, REFERENCE_OPTIONS, '');
+
+  const { as = null, inverse = null, modify, beforeInsert } = options;
   let inverseName = null;
   let inverseKind = 'many';
+  let inverseOptions;
 
   if (typeof inverse === 'string') {
     inverseName = inverse;
   }
   else if (inverse) {
+    checkOptions(inverse, INVERSE_OPTIONS, ' in inverse');
     inverseName = inverse.name;
     inverseKind = inverse.kind || 'many';
+    inverseOptions = { modify: inverse.modify, beforeInsert: inverse.beforeInsert };
   }
 
   if (inverseKind !== 'many' && inverseKind !== 'one') {
     throw new Error(`references(): inverse kind must be "many" or "one", got "${inverseKind}"`);
   }
 
-  return Object.freeze({ target, column, as, inverse: inverseName, inverseKind });
+  return Object.freeze({
+    target,
+    column,
+    as,
+    options: { modify, beforeInsert },
+    inverse: inverseName,
+    inverseKind,
+    inverseOptions,
+  });
+}
+
+function checkOptions(options: object, allowed: readonly string[], where: string): void {
+  for (const key of Object.keys(options)) {
+    if (!allowed.includes(key)) {
+      throw new Error(`references(): unknown option "${key}"${where}`);
+    }
+  }
 }
 
 /**

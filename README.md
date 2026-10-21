@@ -114,6 +114,12 @@ declare them, and they can be mixed in one registry.
 // 1. Foreign keys on columns: a belongsToOne (named by `as`, or the column name without
 //    `Id`/`_id`), plus an inverse on the target only when `inverse` is given.
 vetId: column(z.number().nullable()).references('Vet', 'id', { as: 'doctor', inverse: { name: 'patient', kind: 'one' } }),
+//    `modify` and `beforeInsert` apply to the belongsToOne, and in the object form of
+//    `inverse` to the inverse relation (e.g. soft-delete filters, by table name).
+ownerId: column(z.number()).references('Person', 'id', {
+  modify: query => query.whereNull('persons.deletedAt'),
+  inverse: { name: 'pets', modify: query => query.whereNull('animals.deletedAt') },
+}),
 
 // 2. Declarations next to a model; targets are models (definitions or classic classes).
 //    The callback runs inside defineModels, so circular imports between model files are safe.
@@ -134,6 +140,14 @@ export const db = defineModels({ Person, Animal, Vet, Movie }, [personRelations]
 All five objection relation kinds are available: `hasMany`, `hasOne`, `belongsToOne`,
 `manyToMany` and `hasOneThrough`. Each takes single or composite `from`/`to` keys, `modify`, and
 `beforeInsert`.
+
+`references()` takes `modify` and `beforeInsert` too: at the top level for the `belongsToOne`, and
+in the object form of `inverse` for the inverse relation. A modifier name resolves on the
+relation's target, so `modify: 'active'` is a modifier of the referenced model (`Person`), and
+`inverse.modify` one of the model that declares the column (`Animal`). Filter by table name
+(`persons.deletedAt`), not by relation name: `owner.deletedAt` fails with `withGraphFetched`.
+Unknown option keys, at either level, are compile errors on the key and throw at runtime
+(`references(): unknown option "modfy" in inverse`), so a typo can't silently drop a filter.
 
 **Rules.** These are compile errors on the `defineModels` call, and `defineModels` throws them at
 runtime too, naming both definition sites:
