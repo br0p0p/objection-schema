@@ -134,9 +134,15 @@ const mutants = [
   ],
   [
     D,
-    `[K in keyof KnownKeys<M>]-?: IsAny<KnownKeys<M>[K]> extends true`,
+    `[K in keyof KnownKeys<M>]-?: IsAny<ClassicElement<KnownKeys<M>[K]>> extends true`,
     `[K in keyof KnownKeys<M>]-?: false extends true`,
     'classic fields typed `any` count as relations',
+  ],
+  [
+    D,
+    `[K in keyof KnownKeys<M>]-?: IsAny<ClassicElement<KnownKeys<M>[K]>> extends true`,
+    `[K in keyof KnownKeys<M>]-?: IsAny<KnownKeys<M>[K]> extends true`,
+    'classic fields typed `any[]` count as relations',
   ],
   [
     D,

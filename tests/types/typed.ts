@@ -798,18 +798,34 @@ relations(LoosePet, r => ({
   typo: r.belongsToOne(LooseOwner, { from: 'ownerId', to: 'nope' }),
 }));
 
-// Without an index signature, a field typed `any` is a column too.
+// Without an index signature, a field typed `any` (or an array of `any`) is a column too.
 class AnyData extends Model {
   static tableName = 'any_data';
   id!: number;
   data!: any;
+  tags!: any[];
+  labels!: readonly any[] | null;
+  movies?: Movie[];
 }
 
 const anyDb = defineModels({ AnyData, Movie });
 
-expectType<Equal<Row<typeof anyDb.AnyData>, { id: number; data: any }>>();
+expectType<
+  Equal<Row<typeof anyDb.AnyData>, { id: number; data: any; tags: any[]; labels: readonly any[] | null }>
+>();
 
 expectType<Equal<Row<typeof anyDb.Movie>, { id: number; title: string }>>();
 
+async function anyFields() {
+  const [withMovies] = await anyDb.AnyData.query().withGraphFetched('movies');
+  expectType<Equal<(typeof withMovies.movies)[number]['title'], string>>();
+}
+
 // @ts-expect-error a field typed `any` is a column, not a relation
 anyDb.AnyData.query().withGraphFetched('data');
+
+// @ts-expect-error a field typed `any[]` is a column, not a relation
+anyDb.AnyData.query().withGraphFetched('tags');
+
+// @ts-expect-error a field typed `readonly any[] | null` is a column, not a relation
+anyDb.AnyData.query().withGraphFetched('labels');

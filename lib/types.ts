@@ -285,9 +285,9 @@ type ClassicObject<M> = {
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 
-/** The declared fields typed as models (`any` fields are columns, not relations). */
+/** The declared fields typed as models (`any` and `any[]` fields are columns, not relations). */
 type ClassicRelationKeys<M> = {
-  [K in keyof KnownKeys<M>]-?: IsAny<KnownKeys<M>[K]> extends true
+  [K in keyof KnownKeys<M>]-?: IsAny<ClassicElement<KnownKeys<M>[K]>> extends true
     ? never
     : NonNullable<KnownKeys<M>[K]> extends Model | readonly Model[]
       ? K
