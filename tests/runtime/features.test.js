@@ -3,7 +3,9 @@
 // Features beyond the main walkthrough in defineModel.test.js: every hook, model and
 // relation options, composite keys, classic model handles, error paths and handle methods.
 
+const path = require('node:path');
 const expect = require('expect.js');
+
 const { Model, ValidationError, raw } = require('objection');
 
 const {
@@ -16,9 +18,26 @@ const {
   isModelDefinition,
 } = require('objection-schema');
 
+const ts = require('typescript');
 const v = require('valibot');
 const { z } = require('zod');
 const { connect } = require('./db');
+
+// The keys the built `ModelStatics` declares: 'rejected' (`?: never`) or 'known' (typed).
+function staticsOfTypings() {
+  const typings = path.join(__dirname, '../../dist/index.d.ts');
+  const program = ts.createProgram([typings], { noEmit: true, skipLibCheck: true, strict: true, types: [] });
+  const checker = program.getTypeChecker();
+  const moduleSymbol = checker.getSymbolAtLocation(program.getSourceFile(typings));
+  const alias = checker.getExportsOfModule(moduleSymbol).find(it => it.name === 'ModelStatics');
+  const type = checker.getDeclaredTypeOfSymbol(checker.getAliasedSymbol(alias));
+
+  return new Map(checker.getPropertiesOfType(type).map((symbol) => {
+    const propType = checker.getNonNullableType(checker.getTypeOfSymbol(symbol));
+
+    return [symbol.name, propType.flags & ts.TypeFlags.Never ? 'rejected' : 'known'];
+  }));
+}
 
 describe('features', () => {
   let knex;
@@ -252,6 +271,166 @@ describe('features', () => {
       const [owner] = await Owner.modelClass.query();
       expect(owner).to.be.an(AppModel);
       expect(owner.fetchExtra()).to.be('extra B');
+    });
+
+    it('`statics` sets objection\'s statics on the class', async () => {
+      class Base extends Model {
+        get label() { return `pet ${this.name}`; }
+      }
+
+      class ActiveQueryBuilder extends Model.QueryBuilder {
+        named() { return this.where('name', 'A'); }
+      }
+
+      const Owner = defineModel({
+        base: Base,
+        table: 'owners',
+        columns: ownerColumns(),
+        statics: { virtualAttributes: ['label'], useLimitInFirst: true, QueryBuilder: ActiveQueryBuilder },
+      });
+
+      const owner = await Owner.query().insert({ name: 'A' });
+      expect(owner.toJSON()).to.eql({ id: owner.id, name: 'A', label: 'pet A' });
+      expect(Owner.query().first().toKnexQuery().toSQL().sql).to.match(/limit/i);
+      expect((await Owner.query().named()).map(it => it.id)).to.eql([owner.id]);
+      expect(Base.useLimitInFirst).to.be(false);
+      expect(Base.virtualAttributes).to.be(Model.virtualAttributes);
+    });
+
+    it('`statics` defines own properties, like class fields, on every handle\'s class', () => {
+      class Base extends Model {
+        static get deleteType() { return 'hard'; }
+        static get useLimitInFirst() { return false; }
+      }
+
+      const Owner = defineModel({
+        // objection caches bound classes by table and class name (`uniqueTag()`).
+        name: 'SoftOwner',
+        base: Base,
+        table: 'owners',
+        columns: ownerColumns(),
+        statics: { deleteType: 'soft', useLimitInFirst: true, softDeleteKey: 'deletedAt' },
+      });
+
+      const db = defineModels({ Owner });
+
+      expect(Object.getOwnPropertyDescriptor(Owner.modelClass, 'deleteType')).to.eql({
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: 'soft',
+      });
+
+      for (const modelClass of [Owner.modelClass, db.Owner.modelClass, Owner.bindKnex(knex).modelClass]) {
+        expect(modelClass.deleteType).to.be('soft');
+        expect(modelClass.softDeleteKey).to.be('deletedAt');
+        expect(modelClass.useLimitInFirst).to.be(true);
+      }
+
+      expect(Base.deleteType).to.be('hard');
+      expect(Base.useLimitInFirst).to.be(false);
+      expect(Object.hasOwn(Base, 'softDeleteKey')).to.be(false);
+
+      const objectWithoutPrototype = Object.assign(Object.create(null), { deleteType: 'soft' });
+      const Plain = defineModel({ table: 'owners', columns: ownerColumns(), statics: objectWithoutPrototype });
+      expect(Plain.modelClass.deleteType).to.be('soft');
+
+      // Keys of `Object.prototype` aren't objection's (and a type can't reject them).
+      const WithToString = defineModel({
+        table: 'owners',
+        columns: ownerColumns(),
+        statics: { toString: () => 'Owner!' },
+      });
+
+      expect(String(WithToString.modelClass)).to.be('Owner!');
+    });
+
+    it('`statics` rejects the keys it doesn\'t own, naming the option that owns them', () => {
+      const define = statics => () =>
+        defineModel({ name: 'Pets', table: 'pets', columns: ownerColumns(), statics });
+
+      const rejects = (statics, message) => expect(define(statics)).to.throwError(err =>
+        expect(err.message).to.be(message),
+      );
+
+      rejects({ tableName: 'x' }, 'defineModel(Pets): `statics.tableName` is set by `table`');
+      rejects({ idColumn: 'x' }, 'defineModel(Pets): `statics.idColumn` is set by `id`');
+      rejects({ modifiers: {} }, 'defineModel(Pets): `statics.modifiers` is set by `modifiers`');
+      rejects(
+        { jsonAttributes: [] },
+        'defineModel(Pets): `statics.jsonAttributes` is set by `columns` (`column(schema).json()`)',
+      );
+      rejects(
+        { createValidator: () => null },
+        'defineModel(Pets): `statics.createValidator` is set by `columns` and `validate`',
+      );
+      rejects(
+        { relationMappings: {} },
+        'defineModel(Pets): `statics.relationMappings` is set by `defineModels()` from the declared relations (give a standalone definition classic relations through `base`)',
+      );
+      rejects(
+        { columnNameMappers: {} },
+        'defineModel(Pets): `statics.columnNameMappers` isn\'t supported; property names are column names (use knexSnakeCaseMappers() on knex for snake_case)',
+      );
+      rejects({ prototype: {} }, 'defineModel(Pets): `statics.prototype` can\'t be set');
+      rejects({ name: 'Cats' }, 'defineModel(Pets): `statics.name` is set by `name`');
+
+      for (const key of ['query', 'knex', 'bindKnex', 'fromJson', 'beforeInsert', 'getTableName', 'length', 'bind']) {
+        rejects(
+          { deleteType: 'soft', [key]: null },
+          `defineModel(Pets): \`statics.${key}\` would replace objection's \`Model.${key}\`; set it on a \`base\` class`,
+        );
+      }
+
+      for (const statics of [null, 1, 'x', [], () => {}, new Map()]) {
+        rejects(statics, 'defineModel(Pets): `statics` must be a plain object');
+      }
+
+      // Symbol keys aren't set (ModelStatics rejects them too).
+      rejects(
+        { deleteType: 'soft', [Symbol('softDelete')]: true },
+        'defineModel(Pets): `statics[Symbol(softDelete)]`: statics need string keys',
+      );
+
+      expect(() => defineModel({ table: 'pet_owners', columns: ownerColumns(), statics: { name: 'x' } }))
+        .to
+        .throwError(/^defineModel\(PetOwners\): `statics.name`/);
+    });
+
+    it('`statics` rejects at runtime exactly what ModelStatics rejects by type (lib/types.ts)', function () {
+      // Building a TypeScript program takes a moment.
+      this.timeout(30000);
+
+      const typed = staticsOfTypings();
+      expect([typed.get('virtualAttributes'), typed.get('concurrency')]).to.eql(['known', 'known']);
+      expect([typed.get('query'), typed.get('tableName'), typed.get('name')]).to.eql(['rejected', 'rejected', 'rejected']);
+      const runtimeKeys = new Set();
+
+      for (let it = Model; it; it = Object.getPrototypeOf(it)) {
+        // Not the caches objection adds at runtime (`$$knex`, …), which aren't API.
+        for (const key of Object.getOwnPropertyNames(it).filter(key => !key.startsWith('$$'))) {
+          runtimeKeys.add(key);
+        }
+      }
+
+      for (const key of new Set([...runtimeKeys, ...typed.keys()])) {
+        let rejected = false;
+
+        try {
+          defineModel({ table: 'owners', columns: ownerColumns(), statics: { [key]: undefined } });
+        }
+        catch {
+          rejected = true;
+        }
+
+        // Both ways: rejected by one exactly when rejected by the other, and a static of
+        // objection's that's accepted is typed.
+        expect([key, typed.get(key) === 'rejected']).to.eql([key, rejected]);
+
+        if (!rejected && key in Model && !(key in Object.prototype)) {
+          expect([key, typed.get(key)]).to.eql([key, 'known']);
+        }
+      }
     });
 
     it('`validate: false` keeps the types but skips runtime validation', async () => {

@@ -270,7 +270,7 @@ interface SpecEntry<Sp extends ModelSpec, Rels extends Record<string, RelationDe
   table: Sp['table'];
   modifiers: Sp['modifiers'];
   relations: Rels;
-  modelClass: ModelClassOf<BaseOf<Sp>, RowOfColumns<Sp['columns']>>;
+  modelClass: ModelClassOf<BaseOf<Sp>, RowOfColumns<Sp['columns']>> & StaticsOf<Sp>;
 }
 
 type ClassicRelationKeys<M> = {
@@ -886,6 +886,8 @@ export interface ModelSpec {
   modifiers: string;
   /** The `base` class. Optional so that specs named without it keep working (`typeof Model`). */
   base?: ModelConstructor<Model>;
+  /** The `statics`. Optional for the same reason as `base` (none). */
+  statics?: object;
 }
 
 /** For lib/: `base`'s constraint, and its default (objection's `Model`). */
@@ -896,6 +898,129 @@ export type DefaultBase = typeof Model;
 type BaseOf<Sp extends ModelSpec> = Sp extends { base: infer B extends ModelConstructor<Model> }
   ? B
   : typeof Model;
+
+/** The `statics`, writable like class fields (`const` inference made them `readonly`). */
+type StaticsOf<Sp extends ModelSpec> = Sp extends { statics: infer S extends object }
+  ? { -readonly [K in keyof S]: S[K] }
+  : {};
+
+/**
+ * Statics `defineModel` and `defineModels` set themselves (or that can't be set), so `statics`
+ * rejects them. `columnNameMappers` would break id columns, relation joins and typed queries,
+ * which use property names as column names.
+ */
+type ReservedStatics
+  = | 'tableName'
+    | 'idColumn'
+    | 'modifiers'
+    | 'jsonAttributes'
+    | 'createValidator'
+    | 'relationMappings'
+    | 'columnNameMappers'
+    | 'prototype'
+    | 'name';
+
+/** objection's `Model` statics that `statics` can set (the typings declare most of them). */
+type KnownStatics
+  = | 'QueryBuilder'
+    | 'jsonSchema'
+    | 'modelPaths'
+    | 'virtualAttributes'
+    | 'uidProp'
+    | 'uidRefProp'
+    | 'dbRefProp'
+    | 'propRefRegex'
+    | 'graphUnrelateProp'
+    | 'graphDeleteProp'
+    | 'pickJsonSchemaProperties'
+    | 'relatedFindQueryMutates'
+    | 'relatedInsertQueryMutates'
+    | 'useLimitInFirst'
+    | 'defaultGraphOptions'
+    | 'createNotFoundError'
+    | 'createValidationError';
+
+/**
+ * objection's `Model` statics that `statics` can set, which its typings don't declare (the
+ * `graph…Prop` ones before objection 3.2).
+ */
+interface UndeclaredKnownStatics {
+  graphUnrelateProp: string;
+  graphDeleteProp: string;
+  cloneObjectAttributes: boolean;
+  concurrency: number | null | (() => number);
+  defaultFindOptions: object;
+}
+
+/**
+ * The other statics `Model` has at runtime (objection 3.x's, and `Function`'s, but not
+ * `Object`'s: every object type has those, so a type can't reject them). Like its declared methods (`query`, `bindKnex`, the static query hooks, …), setting
+ * one would replace objection's: put those on a `base` class.
+ */
+type UndeclaredModelStatics
+  = | 'length'
+    | 'apply'
+    | 'bind'
+    | 'call'
+    | 'arguments'
+    | 'caller'
+    | 'isObjectionModelClass'
+    | 'objectionModelClass'
+    | 'onCreateQuery'
+    | 'omitImpl'
+    | 'joinTableAlias'
+    | 'modifierNotFound'
+    | 'uniqueTag'
+    | 'ensureModel'
+    | 'ensureModelArray'
+    | 'columnNameToPropertyName'
+    | 'propertyNameToColumnName'
+    | 'getTableName'
+    | 'getIdColumn'
+    | 'getIdColumnArray'
+    | 'getIdProperty'
+    | 'getIdPropertyArray'
+    | 'getIdRelationProperty'
+    | 'getValidator'
+    | 'getJsonSchema'
+    | 'getJsonAttributes'
+    | 'getColumnNameMappers'
+    | 'getConcurrency'
+    | 'getModifiers'
+    | 'getReadOnlyAttributes'
+    | 'getRelationMappings'
+    | 'getRelationNames'
+    | 'getRelationUnsafe'
+    | 'getVirtualAttributes'
+    | 'getDefaultGraphOptions'
+    | 'getRelatedFindQueryMutates'
+    | 'getRelatedInsertQueryMutates'
+    | 'JoinEagerAlgorithm'
+    | 'NaiveEagerAlgorithm'
+    | 'WhereInEagerAlgorithm'
+    | 'ValidationError'
+    | 'NotFoundError'
+    | 'ModifierNotFoundError';
+
+/**
+ * The `statics` option: objection's known statics, type-checked, and custom ones (`deleteType`,
+ * …), which are kept on `modelClass` and in its type. The keys `defineModel` sets itself and
+ * objection's other statics are rejected.
+ */
+export type ModelStatics = {
+  readonly [K in
+  | ReservedStatics
+  | Exclude<keyof typeof Model | UndeclaredModelStatics, KnownStatics>]?: never;
+}
+& Partial<Pick<typeof Model, Extract<KnownStatics, keyof typeof Model>>>
+& Partial<UndeclaredKnownStatics>
+& { readonly [key: string]: unknown }
+// `defineModel` throws on symbol keys: statics are named, like objection's.
+& { readonly [key: symbol]: never };
+
+/** For lib/: `statics`' constraint. A static the base declares keeps its type. */
+export type StaticsFor<B extends ModelConstructor<Model>> = ModelStatics
+  & Partial<Omit<B, keyof typeof Model>>;
 
 /**
  * Hooks see the base's instance members without the column fields: the column's schema is what
@@ -1017,6 +1142,7 @@ export interface ModelConfig<
   Id extends IdSpec,
   M extends string,
   B extends ModelConstructor<Model> = ModelConstructor<Model>,
+  S extends ModelStatics = ModelStatics,
 > {
   /** Name of the generated class (shows up in errors and stack traces). */
   name?: string;
@@ -1031,6 +1157,12 @@ export interface ModelConfig<
    * its statics, and its instances (and the hooks' `row`) have its members.
    */
   base?: B;
+  /**
+   * Statics to set on the generated class, as own properties (like class fields): objection's
+   * (`virtualAttributes`, `useLimitInFirst`, …) or custom ones that a base class or plugin reads
+   * (`deleteType`, …). `modelClass` has them in its type.
+   */
+  statics?: S;
   /** Set to `false` to skip runtime validation (types only). */
   validate?: boolean;
 }

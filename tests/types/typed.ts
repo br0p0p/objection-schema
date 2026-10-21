@@ -8,6 +8,7 @@ import type {
   Insert,
   ModelConfig,
   ModelDefinition,
+  ModelStatics,
   Patch,
   RelationErrors,
   Result,
@@ -954,3 +955,143 @@ expectType<Equal<Flat<NamedHooks>, { a: string }>>();
 type NamedConfig = ModelConfig<'named', { id: z.ZodNumber }, 'id', never>;
 
 expectType<Equal<NonNullable<NamedConfig['base']>, ModelConstructor<Model>>>();
+
+expectType<Equal<NonNullable<NamedConfig['statics']>, ModelStatics>>();
+
+// Specs named without `statics` add none.
+expectType<Equal<keyof typeof named.modelClass, keyof ModelClass<InstanceType<typeof named.modelClass>>>>();
+
+// ----- statics: objection's known statics are checked, custom ones land on `modelClass` -----
+
+const StaticPet = defineModel({
+  table: 'pets',
+  columns: { id: z.number(), name: z.string() },
+  statics: {
+    virtualAttributes: ['fullName'],
+    useLimitInFirst: true,
+    jsonSchema: { type: 'object' },
+    concurrency: 2,
+    deleteType: 'soft',
+    softDeleteKey: 'deletedAt',
+  },
+});
+
+expectType<Equal<typeof StaticPet.modelClass.deleteType, 'soft'>>();
+
+expectType<Equal<typeof StaticPet.modelClass.softDeleteKey, 'deletedAt'>>();
+
+expectType<Equal<typeof StaticPet.modelClass.useLimitInFirst, true>>();
+
+expectType<Equal<InstanceType<typeof StaticPet.modelClass>['name'], string>>();
+
+// Writable, like a class field.
+StaticPet.modelClass.deleteType = 'soft';
+
+// Still a class where objection expects one.
+const staticPetClass: ModelClass<Model> = StaticPet.modelClass;
+
+// Through a registry, and bound to a knex instance.
+const staticDb = defineModels({ StaticPet });
+
+expectType<Equal<typeof staticDb.StaticPet.modelClass.deleteType, 'soft'>>();
+
+expectType<Equal<typeof staticDb.StaticPet.modelClass, typeof StaticPet.modelClass>>();
+
+const boundStaticPet = StaticPet.bindKnex(petKnex);
+
+expectType<Equal<typeof boundStaticPet.modelClass.deleteType, 'soft'>>();
+
+// With a base: its statics stay, and one set here has to fit the base's declared type.
+const StaticAppPet = defineModel({
+  base: AppModel,
+  table: 'pets',
+  columns: { id: z.number(), name: z.string() },
+  statics: { deleteType: 'hard' },
+});
+
+expectType<Equal<typeof StaticAppPet.modelClass.deleteType, 'hard'>>();
+
+expectType<Equal<ReturnType<typeof StaticAppPet.modelClass.softDelete>, string>>();
+
+defineModel({
+  base: AppModel,
+  table: 'pets',
+  columns: { id: z.number() },
+  // @ts-expect-error the base declares `deleteType` as a string
+  statics: { deleteType: 1 },
+});
+
+// A mistyped known static.
+// @ts-expect-error `useLimitInFirst` is a boolean
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { useLimitInFirst: 'yes' } });
+
+// @ts-expect-error `virtualAttributes` is a list of names
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { virtualAttributes: 'fullName' } });
+
+// @ts-expect-error `concurrency` (undeclared by objection's typings) is a number
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { concurrency: 'many' } });
+
+// The keys the library sets itself, or that can't be set.
+// @ts-expect-error set by `table`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { tableName: 'y' } });
+
+// @ts-expect-error set by `id`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { idColumn: 'id' } });
+
+// @ts-expect-error set by `modifiers`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { modifiers: {} } });
+
+// @ts-expect-error set by `columns`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { jsonAttributes: [] } });
+
+// @ts-expect-error set by `columns` and `validate`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { createValidator: () => null } });
+
+// @ts-expect-error set by defineModels
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { relationMappings: {} } });
+
+// @ts-expect-error property names are column names
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { columnNameMappers: {} } });
+
+// @ts-expect-error can't be redefined
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { prototype: {} } });
+
+// @ts-expect-error set by `name`
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { name: 'Y' } });
+
+// objection's other statics, declared or not, and the static query hooks.
+// @ts-expect-error replaces Model.query
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { query: () => null } });
+
+// @ts-expect-error replaces Model.knex
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { knex: null } });
+
+// @ts-expect-error replaces the base's static hook
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { beforeInsert: () => {} } });
+
+// @ts-expect-error undeclared by objection's typings
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { getTableName: () => 'y' } });
+
+// @ts-expect-error inherited from Function
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { bind: () => null } });
+
+// Known statics that objection's typings don't declare, and the public type for app wrappers.
+defineModel({
+  table: 'x',
+  columns: { id: z.number() },
+  statics: { cloneObjectAttributes: false, defaultFindOptions: {}, concurrency: () => 1 },
+});
+
+const appStatics = { deleteType: 'soft', virtualAttributes: ['fullName'] } satisfies ModelStatics;
+
+// @ts-expect-error reserved in the public type too
+const badStatics: ModelStatics = { tableName: 'x' };
+
+// Symbol keys aren't set at runtime, so they're rejected.
+const softDelete = Symbol('softDelete');
+
+// @ts-expect-error statics need string keys
+defineModel({ table: 'x', columns: { id: z.number() }, statics: { [softDelete]: true } });
+
+// @ts-expect-error in the public type too
+const symbolStatics: ModelStatics = { [softDelete]: true };

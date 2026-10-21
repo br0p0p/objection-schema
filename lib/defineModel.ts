@@ -15,6 +15,7 @@ import type {
   DefaultBase,
   ModelConfig,
   ModelDefinition,
+  StaticsFor,
   StrKeys,
 } from './types';
 import { normalizeColumns } from './column';
@@ -71,8 +72,49 @@ interface RuntimeConfig {
   modifiers?: object | null;
   hooks?: object;
   base?: unknown;
+  statics?: unknown;
   validate?: boolean;
 }
+
+/**
+ * The statics `defineModel` and `defineModels` set themselves, or that can't be set, and why
+ * (`ReservedStatics` in types.ts).
+ */
+const RESERVED_STATICS = new Map([
+  ['tableName', 'is set by `table`'],
+  ['idColumn', 'is set by `id`'],
+  ['modifiers', 'is set by `modifiers`'],
+  ['jsonAttributes', 'is set by `columns` (`column(schema).json()`)'],
+  ['createValidator', 'is set by `columns` and `validate`'],
+  ['relationMappings', 'is set by `defineModels()` from the declared relations (give a standalone definition classic relations through `base`)'],
+  ['columnNameMappers', 'isn\'t supported; property names are column names (use knexSnakeCaseMappers() on knex for snake_case)'],
+  ['prototype', 'can\'t be set'],
+  ['name', 'is set by `name`'],
+]);
+
+/** objection's `Model` statics that `statics` may set (`KnownStatics` in types.ts). */
+const KNOWN_STATICS = new Set([
+  'QueryBuilder',
+  'jsonSchema',
+  'modelPaths',
+  'virtualAttributes',
+  'uidProp',
+  'uidRefProp',
+  'dbRefProp',
+  'propRefRegex',
+  'graphUnrelateProp',
+  'graphDeleteProp',
+  'pickJsonSchemaProperties',
+  'relatedFindQueryMutates',
+  'relatedInsertQueryMutates',
+  'useLimitInFirst',
+  'defaultGraphOptions',
+  'createNotFoundError',
+  'createValidationError',
+  'cloneObjectAttributes',
+  'concurrency',
+  'defaultFindOptions',
+]);
 
 interface HandleMeta {
   readonly name: string;
@@ -106,9 +148,10 @@ export function defineModel<
   const Id extends StrKeys<C> | readonly StrKeys<C>[] = 'id' & StrKeys<C>,
   M extends string = never,
   B extends BaseClass = DefaultBase,
+  const S extends StaticsFor<B> = {},
 >(
-  config: ModelConfig<T, C, Id, M, B>,
-): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M; base: B }>;
+  config: ModelConfig<T, C, Id, M, B, S>,
+): ModelDefinition<{ table: T; columns: C; id: Id; modifiers: M; base: B; statics: S }>;
 export function defineModel(config: RuntimeConfig): object {
   const {
     name,
@@ -120,6 +163,7 @@ export function defineModel(config: RuntimeConfig): object {
     // objection's `Model`, so that a global `Model.knex(knex)` binding is
     // inherited, like with classic models.
     base = Model,
+    statics = {},
     validate = true,
   } = config || {};
 
@@ -141,6 +185,7 @@ export function defineModel(config: RuntimeConfig): object {
     }
   }
 
+  const staticValues = checkStatics(className, statics);
   const tableName = table;
   // Stryker disable next-line UpdateOperator: counting down gives unique ids too.
   const definitionId = definitionCount++;
@@ -167,6 +212,16 @@ export function defineModel(config: RuntimeConfig): object {
     }
   } }[className];
 
+  // Like the class fields above: own properties, which shadow getter-only statics of the base.
+  for (const key of Object.keys(staticValues)) {
+    Object.defineProperty(modelClass, key, {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: staticValues[key],
+    });
+  }
+
   // SAFETY: the values are hook functions; names that aren't hooks throw below.
   const hookFns = hooks as Record<string, Hook>;
 
@@ -186,6 +241,42 @@ export function defineModel(config: RuntimeConfig): object {
   });
 
   return def;
+}
+
+// Checks every key of `statics` before any is set.
+function checkStatics(className: string, statics: unknown): Readonly<Record<string, unknown>> {
+  const proto = statics === null ? undefined : Object.getPrototypeOf(statics);
+
+  if (proto !== Object.prototype && proto !== null) {
+    throw new Error(`defineModel(${className}): \`statics\` must be a plain object`);
+  }
+
+  // SAFETY: a plain object, checked just above.
+  const values = statics as Readonly<Record<string, unknown>>;
+
+  // `Object.keys` below (and in the define loop) skips symbols, so they'd be typed but not set.
+  const [symbol] = Object.getOwnPropertySymbols(values);
+
+  if (symbol !== undefined) {
+    throw new Error(`defineModel(${className}): \`statics[${String(symbol)}]\`: statics need string keys`);
+  }
+
+  for (const key of Object.keys(values)) {
+    const reserved = RESERVED_STATICS.get(key);
+
+    if (reserved !== undefined) {
+      throw new Error(`defineModel(${className}): \`statics.${key}\` ${reserved}`);
+    }
+
+    // `Object.prototype`'s keys are every object's, not objection's (types can't reject them).
+    if (key in Model && !(key in Object.prototype) && !KNOWN_STATICS.has(key)) {
+      throw new Error(
+        `defineModel(${className}): \`statics.${key}\` would replace objection's \`Model.${key}\`; set it on a \`base\` class`,
+      );
+    }
+  }
+
+  return values;
 }
 
 function createModelHandle(modelClass: ModelClass, meta: HandleMeta): RuntimeHandle {

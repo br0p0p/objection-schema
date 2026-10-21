@@ -141,8 +141,8 @@ const mutants = [
   ],
   [
     'lib/defineModel.ts',
-    `modifiers: M; base: B }>;`,
-    `modifiers: M }>;`,
+    `modifiers: M; base: B; statics: S }>;`,
+    `modifiers: M; statics: S }>;`,
     'the spec drops `base`',
   ],
   [
@@ -181,6 +181,67 @@ const mutants = [
     `Row> = Omit<InstanceType<B>, keyof Row>;`,
     `Row> = InstanceType<B>;`,
     'update hooks get base-declared columns as required',
+  ],
+  [
+    D,
+    `  | ReservedStatics\n  | Exclude<`,
+    `  | Exclude<`,
+    'statics accepts the keys defineModel sets itself (`name`)',
+  ],
+  [
+    D,
+    `Exclude<keyof typeof Model | UndeclaredModelStatics, KnownStatics>`,
+    `Exclude<UndeclaredModelStatics, KnownStatics>`,
+    'statics accepts objection\'s declared statics (`query`, `knex`, static hooks)',
+  ],
+  [
+    D,
+    `Exclude<keyof typeof Model | UndeclaredModelStatics, KnownStatics>`,
+    `Exclude<keyof typeof Model, KnownStatics>`,
+    'statics accepts objection\'s undeclared statics (`getTableName`, `bind`)',
+  ],
+  [
+    D,
+    `& Partial<Pick<typeof Model, Extract<KnownStatics, keyof typeof Model>>>`,
+    `& Partial<Pick<typeof Model, never>>`,
+    'known statics aren\'t type-checked',
+  ],
+  [
+    D,
+    `& Partial<UndeclaredKnownStatics>\n`,
+    `\n`,
+    'known statics undeclared by objection aren\'t type-checked',
+  ],
+  [
+    D,
+    `ModelStatics\n  & Partial<Omit<B, keyof typeof Model>>;`,
+    `ModelStatics;`,
+    'statics may change the type of a base\'s static',
+  ],
+  [
+    D,
+    `RowOfColumns<Sp['columns']>> & StaticsOf<Sp>;`,
+    `RowOfColumns<Sp['columns']>>;`,
+    'custom statics are missing from modelClass',
+  ],
+  [D, `  ? { -readonly [K in keyof S]: S[K] }`, `  ? S`, 'statics on modelClass are readonly'],
+  [
+    D,
+    `& { readonly [key: symbol]: never };`,
+    `& { readonly [key: symbol]: unknown };`,
+    'statics accepts symbol keys, which defineModel doesn\'t set',
+  ],
+  [
+    'lib/defineModel.ts',
+    `  const S extends StaticsFor<B> = {},`,
+    `  S extends StaticsFor<B> = {},`,
+    'custom statics widen to `string`',
+  ],
+  [
+    'lib/defineModel.ts',
+    `base: B; statics: S }>;`,
+    `base: B }>;`,
+    'the spec drops `statics`',
   ],
 ];
 
